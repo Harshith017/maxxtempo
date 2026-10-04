@@ -293,3 +293,28 @@ language sql stable security definer set search_path = public, auth as $$
 $$;
 revoke all on function public.access_account_state(text) from public, anon, authenticated;
 grant execute on function public.access_account_state(text) to service_role;
+
+-- 12. Shared barcode list. When a pack isn't on Open Food Facts, whoever scans it
+-- first adds the label values once, and every approved member gets them on their
+-- next scan. Approved members can read and add; a row can be corrected by the
+-- person who added it or by the owner.
+create table if not exists public.shared_foods (
+  code       text primary key check (code ~ '^[0-9]{6,14}$'),
+  name       text not null check (char_length(name) between 1 and 80),
+  per        jsonb not null check (pg_column_size(per) < 4000),   -- per 100 g: kcal, protein, carbs, fat, fiber, sugar, added_sugar, micros
+  units      jsonb not null default '{}'::jsonb check (pg_column_size(units) < 500),
+  source     text not null default 'label' check (source in ('label','ai','off')),
+  added_by   uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.shared_foods enable row level security;
+drop policy if exists "members read shared foods"  on public.shared_foods;
+drop policy if exists "members add shared foods"   on public.shared_foods;
+drop policy if exists "fix own shared foods"       on public.shared_foods;
+drop policy if exists "remove own shared foods"    on public.shared_foods;
+create policy "members read shared foods" on public.shared_foods for select to authenticated using ((select private.is_approved()));
+create policy "members add shared foods"  on public.shared_foods for insert to authenticated with check ((select private.is_approved()) and added_by = (select auth.uid()));
+create policy "fix own shared foods"      on public.shared_foods for update to authenticated using ((select private.is_approved()) and (added_by = (select auth.uid()) or (select private.is_admin()))) with check ((select private.is_approved()));
+create policy "remove own shared foods"   on public.shared_foods for delete to authenticated using (added_by = (select auth.uid()) or (select private.is_admin()));
+create index if not exists shared_foods_added_by on public.shared_foods (added_by);
