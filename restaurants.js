@@ -27,6 +27,17 @@ const DEFAULT_TOPPINGS = {
   mini: ['FRESH TOMATO AND ONION SALSA', 'CORN SALSA', 'GRILLED ONION & CAPSICUM'],
 };
 
+// Add-ons that are also sold as a side count as 30% of that side's values (owner's rule:
+// an add-on portion is about a third of a side). Others keep the calculator's own numbers.
+const ADDON_SHARE = 0.3;
+const SIDE_OF = { 'GRILLED BARBEQUE CHICKEN': 'GRILLED BBQ CHICKEN', 'CHILI CHIPOTLE CHICKEN': 'CHILI CHIPOTLE CHICKEN', 'MEXICAN PANEER': 'MEXICAN PANEER', 'BARBEQUE PANEER': 'BBQ PANEER',
+  'GUACAMOLE': 'GUACAMOLE', 'MANGO SALSA': 'MANGO SALSA', 'CORN SALSA': 'CORN SALSA', 'JALAPENOS': 'JALAPENOS', 'SOUR CREAM': 'SOUR CREAM', 'MEXICAN VEGGIE MIX': 'MEXICAN VEGGIE MIX' };
+function addonRow(row) {
+  const side = row && SIDE_OF[row[0]] && CB.sides.find(r => r[0] === SIDE_OF[row[0]]);
+  if (!side) return row;
+  const k = x => Math.round(x * ADDON_SHARE * 10) / 10;
+  return [row[0], Math.round(side[1] * ADDON_SHARE), k(side[2]), k(side[3]), k(side[4]), 'side'];
+}
 const list = (meal, cat, size) => { const v = (CB[meal] || {})[cat]; if (!v) return []; return Array.isArray(v) ? v : (v[size] || v.regular || v[Object.keys(v)[0]] || []); };
 const find = (rows, name) => rows.find(r => r[0] === name) || null;
 const titleCase = s => s.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()).replace(/\bBbq\b/g, 'BBQ').replace(/Guacmole/g, 'Guacamole');
@@ -50,12 +61,12 @@ function build(meal, size, picks) {
     if (p.rice && p.rice !== 'NO RICE') add(find(list(meal, 'rice', size), p.rice));
     if (p.beans && p.beans !== 'NO BEANS') add(find(list(meal, 'beans', size), p.beans));
     for (const t of p.toppings || []) add(find(list(meal, 'toppings', size), t));
-    for (const t of p.extraToppings || []) add(find(list(meal, 'extraToppings', size), t), 'Extra ' + titleCase(t).toLowerCase());
+    for (const t of p.extraToppings || []) add(addonRow(find(list(meal, 'extraToppings', size), t)), 'Extra ' + titleCase(t).toLowerCase());
   }
-  if (meal === 'quesadilla') for (const t of p.extras || []) add(find(list('quesadilla', 'beans', size), t), 'Extra ' + titleCase(t).toLowerCase());
+  if (meal === 'quesadilla') for (const t of p.extras || []) add(addonRow(find(list('quesadilla', 'beans', size), t)), 'Extra ' + titleCase(t).toLowerCase());
   if (!(meal === 'burrito' && size === 'habanero') && !['quesadilla', 'munchies', 'sides'].includes(meal) && !(meal === 'tacos' && size === 'overcrowded')) {
-    for (const t of p.extraFillings || []) add(find(list(meal, 'extraFillings', size), t), 'Extra ' + titleCase(t).toLowerCase());
-    for (const t of p.makeItRich || []) add(find(list(meal, 'makeItRich', size), t));
+    for (const t of p.extraFillings || []) add(addonRow(find(list(meal, 'extraFillings', size), t)), 'Extra ' + titleCase(t).toLowerCase());
+    for (const t of p.makeItRich || []) add(addonRow(find(list(meal, 'makeItRich', size), t)));
   }
   if (meal === 'salad' && p.dressing) add(find(list('salad', 'dressing', size), p.dressing));
   if (['quesadilla', 'munchies'].includes(meal)) for (const t of p.dips || []) add(find(CB[meal].chooseyourdip, t), titleCase(t) + ' dip');
@@ -179,6 +190,6 @@ function parse(text) {
   return r;
 }
 
-const api = { CB, MEALS, build, parse, isCB, isModifier, splitOrder, list, titleCase, DEFAULT_TOPPINGS };
+const api = { CB, MEALS, build, parse, isCB, isModifier, splitOrder, addonRow, ADDON_SHARE, list, titleCase, DEFAULT_TOPPINGS };
 if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Restaurants = api;
 })(this);
