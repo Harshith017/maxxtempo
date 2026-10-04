@@ -27,8 +27,9 @@ const DEFAULT_TOPPINGS = {
   mini: ['FRESH TOMATO AND ONION SALSA', 'CORN SALSA', 'GRILLED ONION & CAPSICUM'],
 };
 
-// Add-ons that are also sold as a side count as 30% of that side's values (owner's rule:
-// an add-on portion is about a third of a side). Others keep the calculator's own numbers.
+// Add-ons (extra toppings, make-it-rich, quesadilla extras) that are also sold as a side count
+// as 30% of that side's values (owner's rule). Extra fillings and anything without a matching
+// side keep the calculator's own numbers.
 const ADDON_SHARE = 0.3;
 const SIDE_OF = { 'GRILLED BARBEQUE CHICKEN': 'GRILLED BBQ CHICKEN', 'CHILI CHIPOTLE CHICKEN': 'CHILI CHIPOTLE CHICKEN', 'MEXICAN PANEER': 'MEXICAN PANEER', 'BARBEQUE PANEER': 'BBQ PANEER',
   'GUACAMOLE': 'GUACAMOLE', 'MANGO SALSA': 'MANGO SALSA', 'CORN SALSA': 'CORN SALSA', 'JALAPENOS': 'JALAPENOS', 'SOUR CREAM': 'SOUR CREAM', 'MEXICAN VEGGIE MIX': 'MEXICAN VEGGIE MIX' };
@@ -65,7 +66,8 @@ function build(meal, size, picks) {
   }
   if (meal === 'quesadilla') for (const t of p.extras || []) add(addonRow(find(list('quesadilla', 'beans', size), t)), 'Extra ' + titleCase(t).toLowerCase());
   if (!(meal === 'burrito' && size === 'habanero') && !['quesadilla', 'munchies', 'sides'].includes(meal) && !(meal === 'tacos' && size === 'overcrowded')) {
-    for (const t of p.extraFillings || []) add(addonRow(find(list(meal, 'extraFillings', size), t)), 'Extra ' + titleCase(t).toLowerCase());
+    // Extra fillings use the calculator's own values (e.g. extra grilled chicken 190 kcal).
+    for (const t of p.extraFillings || []) add(find(list(meal, 'extraFillings', size), t), 'Extra ' + titleCase(t).toLowerCase());
     for (const t of p.makeItRich || []) add(addonRow(find(list(meal, 'makeItRich', size), t)));
   }
   if (meal === 'salad' && p.dressing) add(find(list('salad', 'dressing', size), p.dressing));
@@ -80,7 +82,8 @@ function build(meal, size, picks) {
 }
 
 /* ---------- reading what people type ---------- */
-const BRAND = /\b(california burrito|cali(fornia)? burito|cali burrito|calif burrito|\bcb\b)\b/i;
+// "California Burrito", "CB", or just "California"/"Cali" in front of one of their dishes.
+const BRAND = /\b(california burrito|cali(fornia)? burito|cali burrito|calif burrito|\bcb\b|(california|cali)(?=.*\b(bowl|burrito|salad|tacos?|quesadilla|nachos|snachos|tostada|popcorn|munchies)\b))\b/i;
 const PROTEINS = [
   ['GRILLED BARBEQUE CHICKEN', /\b(grilled|bbq|barbe?que|barbecue)\s*(bbq\s*)?chicken\b/],
   ['CRISPY PERI PERI CHICKEN', /\b(crispy\s*)?peri\s*-?\s*peri\s*chicken\b|\bcrispy chicken\b/],
