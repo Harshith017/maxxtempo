@@ -1973,7 +1973,7 @@ function sourcesHtml(){
   return `<ul class="tips">
     <li><b>Foods:</b> MaxxTempo’s table (IFCT 2017 and USDA averages); Indian recipes from the <a href="https://www.anuvaad.org.in/indian-nutrient-databank/" target="_blank" rel="noopener">Indian Nutrient Databank (INDB)</a>, Vijayakumar et al. 2024, CC BY 4.0; <a href="https://fdc.nal.usda.gov" target="_blank" rel="noopener">USDA FoodData Central</a> SR Legacy, public domain.</li>
     <li><b>Sports and activities:</b> METs from the <a href="https://pacompendium.com" target="_blank" rel="noopener">2024 Adult Compendium of Physical Activities</a> (Herrmann, Willis, Ainsworth et al., <i>J Sport Health Sci</i> 2024), free to use.</li>
-    <li><b>Packaged foods:</b> barcode lookups from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>, © Open Food Facts contributors, <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">ODbL</a>. Scanning uses <a href="https://github.com/zxing-js/browser" target="_blank" rel="noopener">ZXing</a> (MIT / Apache-2.0).</li>
+    <li><b>Packaged foods:</b> barcode lookups from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>, © Open Food Facts contributors, <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">ODbL</a>. Scanning uses <a href="https://github.com/zxing-js/browser" target="_blank" rel="noopener">ZXing</a> (MIT / Apache-2.0). Packs that aren’t there are read from a label photo on your phone with <a href="https://github.com/naptha/tesseract.js" target="_blank" rel="noopener">Tesseract.js</a> (Apache-2.0) and shared with your group.</li>
     <li><b>Exercises:</b> <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noopener">free-exercise-db</a> (public domain); <a href="https://wger.de" target="_blank" rel="noopener">wger</a> (CC-BY-SA, authors listed on each exercise); <a href="https://oss.exercisedb.dev" target="_blank" rel="noopener">ExerciseDB</a> free version (non-commercial, animations from ExerciseDB).</li>
   </ul><div class="muted small">All free, with no accounts or keys. Food and exercise data is stored in the app, so it keeps working even if a source goes offline; only barcode lookups and exercise pictures need the internet.</div>`;
 }
@@ -2081,14 +2081,14 @@ async function searchFoods(q, limit=40){
     return x; };
   return out.map(f => [score(f), f]).sort((a,b) => a[0]-b[0]).map(x => x[1]).slice(0, limit);
 }
-const SRC_LABEL = {mine:'my food', builtin:'built in', indb:'INDB', usda:'USDA', off:'Open Food Facts'};
+const SRC_LABEL = {mine:'my food', builtin:'built in', indb:'INDB', usda:'USDA', off:'Open Food Facts', group:'added by your group', label:'from the label'};
 function openFoodSearch(){
   const d = $('#dlg');
   d.innerHTML = `<div class="fsearch"><h2>Find a food</h2>
     <label class="field full">Search<input id="fq" type="search" placeholder="e.g. almonds, paneer tikka, oats" autocomplete="off"></label>
     <div id="fres" class="exres"><div class="muted small">${n0(FOODS.length + (S.libFoods||[]).length)} Indian and everyday foods, plus about 7,200 from USDA. No AI used.</div></div>
-    <div class="row"><button class="btn ghost sm" id="fscan">Scan a barcode</button><span class="spacer"></span><button class="btn ghost" id="fclose">Close</button></div></div>`;
-  d.showModal(); $('#fclose').onclick = () => d.close(); $('#fscan').onclick = () => openScanner();
+    <div class="row"><button class="btn ghost sm" id="fscan">Scan a barcode</button><button class="btn ghost sm" id="flabel">From a label</button><span class="spacer"></span><button class="btn ghost" id="fclose">Close</button></div></div>`;
+  d.showModal(); $('#fclose').onclick = () => d.close(); $('#fscan').onclick = () => openScanner(); $('#flabel').onclick = () => openLabel('', ($('#fq')?.value||'').trim(), 'A packed food without a barcode, or one you’d rather add by hand?');
   let t = null, list = [];
   $('#fq').addEventListener('input', ev => { clearTimeout(t); t = setTimeout(async () => {
     const q = ev.target.value; if (!q.trim()) { $('#fres').innerHTML=''; return; }
@@ -2130,8 +2130,9 @@ function openPortion(f, note){
     const x = foodFromPer(f, g, u==='g' ? `${n0(g)} g` : `${q} ${u}${q>1&&!/s$/.test(u)?'s':''}`); x.meal = $('#pm').value;
     d.close();
     await saveEntry(S.date, {foods:[x]});
-    if (f.src==='usda' || f.src==='off') saveMyFood({...x, verified:f.src==='off'}, f.barcode || null);
-    setStatus(`Logged ${f.name} · ${n0(x.kcal)} kcal. No AI used${f.src==='usda'||f.src==='off'?'; saved to your food list, so typing it next time works too':''}.`);
+    const keep = ['usda','off','group','label'].includes(f.src);
+    if (keep) saveMyFood({...x, verified:f.src!=='usda'}, f.barcode || null);
+    setStatus(`Logged ${f.name} · ${n0(x.kcal)} kcal. No AI used${keep?'; saved to your food list, so typing it next time works too':''}.`);
   };
 }
 
@@ -2168,19 +2169,17 @@ async function lookupBarcode(code){
   // Scanned before? It's in your food list, no network needed.
   const mine = Object.values(S.myFoods||{}).find(f => (f.aliases||[]).includes(code));
   if (mine) { openPortion({...mine, src:'mine'}, `Barcode ${esc(code)} · from your food list`); return; }
-  d.innerHTML = `<div class="scan"><h2>Looking up ${esc(code)}…</h2><div class="muted small">Asking Open Food Facts.</div></div>`;
+  d.innerHTML = `<div class="scan"><h2>Looking up ${esc(code)}…</h2><div class="muted small">Checking your group’s list, then Open Food Facts.</div></div>`;
+  // Added from a label by someone in the group? Everyone gets it.
+  const shared = await sharedFood(code);
+  if (shared) { openPortion(shared, `Barcode ${esc(code)} · added from the label by someone in your group`); return; }
   let p = null;
   try {
     const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=product_name,product_name_en,brands,nutriments,serving_quantity,product_quantity,quantity`);
     const j = await r.json().catch(() => null); if (j && j.status === 1) p = j.product;
   } catch { d.innerHTML = `<div class="scan"><h2>Couldn’t look it up</h2><p class="muted">You seem to be offline. Try again when connected, or type what you ate in the log box.</p><div class="row"><span class="spacer"></span><button class="btn ghost" id="scanclose">Close</button></div></div>`; $('#scanclose').onclick = () => d.close(); return; }
   const f = p && offToFood(p, code);
-  if (!f) {
-    d.innerHTML = `<div class="scan"><h2>${p ? esc(p.product_name||'Product')+': no nutrition facts yet' : 'Product not found'}</h2>
-      <p class="muted">Open Food Facts doesn’t have ${p?'the nutrition table for':''} barcode ${esc(code)} yet. Type what you ate in the log box instead, or add the product at <a href="https://world.openfoodfacts.org/cgi/product.pl?type=add&code=${esc(code)}" target="_blank" rel="noopener">Open Food Facts</a> so everyone gets it.</p>
-      <div class="row"><button class="btn ghost sm" id="scanagain">Scan another</button><span class="spacer"></span><button class="btn ghost" id="scanclose">Close</button></div></div>`;
-    $('#scanclose').onclick = () => d.close(); $('#scanagain').onclick = () => openScanner(); return;
-  }
+  if (!f) { openLabel(code, p ? String(p.product_name_en || p.product_name || '').trim() : '', p ? 'Open Food Facts has this product but not its nutrition table.' : 'This pack isn’t on Open Food Facts yet.'); return; }
   openPortion(f, `Barcode ${esc(code)} · <a href="https://world.openfoodfacts.org/product/${esc(code)}" target="_blank" rel="noopener">Open Food Facts</a> (ODbL)`);
 }
 // Open Food Facts nutriments are per 100 g, minerals and vitamins in grams.
@@ -2198,6 +2197,84 @@ function offToFood(p, code){
   const plain = /\b(milk|curd|dahi|yogh?urt|paneer|cheese|egg|oats|atta|flour|rice|dal|lentil|nuts?|almond|peanut|butter|ghee|tofu|soya)\b/i.test(name) && !sweetName(name);
   const added = n['added-sugars_100g'] != null ? g('added-sugars') : plain ? 0 : g('sugars');
   return {name, aliases:[code], units, per:{kcal, protein:g('proteins'), carbs:g('carbohydrates'), fat:g('fat'), fiber:g('fiber'), sugar:g('sugars'), added_sugar:added, micros}, alcohol:g('alcohol')*0.789, src:'off', barcode:code};
+}
+
+/* ---------- packs that aren't on Open Food Facts: read the label once, share it ----------
+   The photo is read on the phone by Tesseract (no AI, ~7 MB downloaded the first
+   time); label.js picks out the per-100 g values. The person checks them, and the
+   pack goes into the group's shared list (table shared_foods) for everyone's next scan. */
+async function sharedFood(code){
+  if (!SB || !S.user || !/^\d{6,14}$/.test(code)) return null;
+  try { const { data } = await SB.from('shared_foods').select('code,name,per,units').eq('code', code).maybeSingle();
+    return data && data.per && data.per.kcal > 0 ? {name:data.name, aliases:[code], units:data.units||{}, per:{...data.per, micros:{...(data.per.micros||{})}}, src:'group', barcode:code} : null; } catch { return null; }
+}
+const TESS = { src:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js', integrity:'sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F' };
+async function readLabelText(file, onProgress){
+  await loadScript(TESS);
+  const worker = await Tesseract.createWorker('eng', 1, {
+    workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+    corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+    langPath:'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int',
+    logger: m => onProgress && onProgress(m) });
+  try {
+    // Grey and about 1,600 px wide: faster, and easier to read than a raw phone photo.
+    const bmp = await createImageBitmap(file); const sc = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width*sc); c.height = Math.round(bmp.height*sc);
+    const x = c.getContext('2d'); x.filter = 'grayscale(1) contrast(1.3)'; x.drawImage(bmp, 0, 0, c.width, c.height);
+    const { data } = await worker.recognize(c); return data.text || '';
+  } finally { await worker.terminate().catch(()=>{}); }
+}
+const LB_FIELDS = [['kcal','Energy','kcal'],['protein','Protein','g'],['carbs','Carbohydrate','g'],['sugar','of which sugars','g'],['added_sugar','Added sugars','g'],['fat','Total fat','g'],['sat_fat','Saturated fat','g'],['fiber','Fibre','g'],['sodium','Sodium','mg']];
+function openLabel(code, name, why){
+  const d = $('#dlg'); if (!d.open) d.showModal();
+  let photo = null;
+  d.innerHTML = `<form class="form" id="lbform" style="gap:12px"><h2 class="full">Add it from the label</h2>
+    <div class="full small muted">${esc(why||'')} Take a photo of the nutrition table (or type the per 100 g values). ${code?'It’s saved for everyone in MaxxTempo, so the next scan is instant.':'It’s saved to your food list.'}</div>
+    <label class="field full">Product name<input id="lb_name" maxlength="70" value="${esc(name||'')}" placeholder="e.g. Haldiram’s Aloo Bhujia" required></label>
+    <div class="full row"><label class="btn ghost sm" style="cursor:pointer">Photo of the nutrition table<input id="lb_file" type="file" accept="image/*" capture="environment" hidden></label>${S.sample?'<button type="button" class="btn ghost sm" id="lb_ai" hidden>Read it with AI instead</button>':''}</div>
+    <div class="full status" id="lb_msg" aria-live="polite"></div>
+    <div class="full muted small"><b>Per 100 g</b> (or 100 ml), as printed on the label</div>
+    <div class="full micgrid">${LB_FIELDS.map(([k,l,u])=>`<label class="field">${l} (${u})<input data-lb="${k}" type="number" min="0" step="any" inputmode="decimal"></label>`).join('')}</div>
+    <label class="field">Serving size (g)<input id="lb_serv" type="number" min="0" step="any" inputmode="decimal" placeholder="optional"></label>
+    <label class="field">Pack size (g)<input id="lb_pack" type="number" min="0" step="any" inputmode="decimal" placeholder="optional"></label>
+    ${code?`<div class="full muted small">Barcode ${esc(code)} · you can also <a href="https://world.openfoodfacts.org/cgi/product.pl?type=add&code=${esc(code)}" target="_blank" rel="noopener">add it to Open Food Facts</a> for everyone else.</div>`:''}
+    <div class="full row"><span class="spacer"></span><button class="btn ghost" type="button" id="lb_cancel">Cancel</button><button class="btn" type="submit">Save and log</button></div></form>`;
+  const msg = (t, err) => { const m = $('#lb_msg'); if (m) { m.textContent = t; m.classList.toggle('err', !!err); } };
+  const fill = (v, src) => { let n = 0; for (const [k] of LB_FIELDS) { const el = d.querySelector(`[data-lb="${k}"]`); if (v[k] != null && el) { el.value = v[k]; n++; } }
+    if (v.name && !$('#lb_name').value) $('#lb_name').value = String(v.name).slice(0,70);
+    if (v.serving_g > 0 && !$('#lb_serv').value) $('#lb_serv').value = v.serving_g; if (v.pack_g > 0 && !$('#lb_pack').value) $('#lb_pack').value = v.pack_g;
+    return n; };
+  $('#lb_cancel').onclick = () => d.close();
+  $('#lb_file').onchange = async ev => { photo = ev.target.files?.[0]; ev.target.value = ''; if (!photo) return;
+    msg('Reading the label on your phone… (the first time downloads the reader, about 7 MB)');
+    try {
+      const text = await readLabelText(photo, m => { if (m.status==='recognizing text') msg(`Reading the label… ${Math.round((m.progress||0)*100)}%`); });
+      const n = fill(Label.parse(text), 'ocr');
+      msg(n >= 4 ? `Read ${n} values. Check them against the label, then save.` : n ? `Read ${n} value${n>1?'s':''}; type the rest from the label.` : 'Couldn’t read the numbers. Try a sharper, straight-on photo of just the table, or type them in.', n < 4);
+    } catch (e) { console.warn('ocr', e?.message); msg('Couldn’t read the photo here. Type the values from the label, or try the AI reader.', true); }
+    if ($('#lb_ai')) $('#lb_ai').hidden = false;
+  };
+  if ($('#lb_ai')) $('#lb_ai').onclick = async () => { if (!photo) return; msg('Reading the label with AI…');
+    try { const r = await S.sample.json(`Read the nutrition information table in this photo of a packaged food label. Reply with ONLY JSON: {"name":string|null,"per_100g":{"kcal":number|null,"protein_g":number|null,"carbs_g":number|null,"sugar_g":number|null,"added_sugar_g":number|null,"fat_g":number|null,"sat_fat_g":number|null,"fiber_g":number|null,"sodium_mg":number|null},"serving_g":number|null,"pack_g":number|null}. Use the per 100 g (or 100 ml) column; if only per serving is printed, convert with the serving size. kJ ÷ 4.184 = kcal. Use null for anything not printed.`, {task:'log', images:[await toJpeg(photo)]});
+      const v = r?.per_100g || {}; const n = fill({kcal:v.kcal, protein:v.protein_g, carbs:v.carbs_g, sugar:v.sugar_g, added_sugar:v.added_sugar_g, fat:v.fat_g, sat_fat:v.sat_fat_g, fiber:v.fiber_g, sodium:v.sodium_mg, name:r?.name, serving_g:r?.serving_g, pack_g:r?.pack_g});
+      msg(n ? `AI read ${n} values. Check them against the label, then save.` : 'The AI couldn’t read that photo either. Type the values from the label.', !n);
+    } catch (e) { msg(AI_ERR[e?.code] || AI_ERR.unavailable, true); } };
+  $('#lbform').onsubmit = async ev => { ev.preventDefault();
+    const v = {}; for (const [k] of LB_FIELDS) { const x = d.querySelector(`[data-lb="${k}"]`).value; v[k] = x === '' ? null : num(x, k==='sodium'?100000:k==='kcal'?1000:100); }
+    const nm = $('#lb_name').value.trim();
+    if (!nm) { msg('Add the product name.', true); return; }
+    if (!(v.kcal > 0) || v.protein == null || v.carbs == null || v.fat == null) { msg('Energy, protein, carbohydrate and fat are needed.', true); return; }
+    const off = Label.checkEnergy(v);
+    if (off != null && off > 0.3 && !d.dataset.warned) { d.dataset.warned = '1'; msg(`The calories don’t match protein, carbs and fat (about ${n0(4*v.protein+4*v.carbs+9*v.fat)} kcal expected). Check for a typo, or tap Save again if the label really says this.`, true); return; }
+    const units = {}; const sv = num($('#lb_serv').value, 2000), pk = num($('#lb_pack').value, 5000); if (sv > 0) units.serving = Math.round(sv); if (pk > 0 && pk !== sv) units.packet = Math.round(pk);
+    const per = {kcal:v.kcal, protein:v.protein, carbs:v.carbs, fat:v.fat, fiber:v.fiber||0, sugar:v.sugar||0, ...(v.added_sugar!=null?{added_sugar:v.added_sugar}:{}), micros:{sat_fat_g:v.sat_fat||0, sodium_mg:v.sodium||0}};
+    const f = {name:nm, aliases:code?[code]:[], units, per, src:code?'group':'label', barcode:code||null};
+    if (code && SB && S.user) {
+      const { error } = await SB.from('shared_foods').upsert({code, name:nm, per, units, source:'label', added_by:S.user.id, updated_at:new Date().toISOString()});
+      if (error) console.warn('shared_foods', error.message);
+    }
+    openPortion(f, code ? `Barcode ${esc(code)} · saved for everyone in MaxxTempo` : 'From the label');
+  };
 }
 
 /* ---------- Trends ---------- */

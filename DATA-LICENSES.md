@@ -11,6 +11,8 @@ MaxxTempo's code is separate from the data below. Each file in `data/` comes fro
 | `data/usda.json` | [USDA FoodData Central](https://fdc.nal.usda.gov), SR Legacy (April 2018) | CC0 1.0 (public domain) | Nothing (citation appreciated) |
 | `data/activities.json` | [2024 Adult Compendium of Physical Activities](https://pacompendium.com), Herrmann SD, Willis EA, Ainsworth BE, et al., *J Sport Health Sci* 2024;13:6–12 | Free to use, including commercially | Cite the Compendium |
 | barcode lookups (live, not stored here) | [Open Food Facts](https://world.openfoodfacts.org) | Database ODbL, contents DbCL | Credit Open Food Facts with a link; a food saved to your own list is your copy |
+| label reader (loaded from jsDelivr when first used) | [Tesseract.js](https://github.com/naptha/tesseract.js) and its English model | Apache-2.0 | Nothing extra |
+| shared barcode list (`shared_foods` table) | Label values typed or read by members of this app | Your group's own data | Nothing |
 | barcode reader (loaded from jsDelivr) | [ZXing for the browser](https://github.com/zxing-js/browser) | Apache-2.0 | Nothing extra |
 
 The app shows these credits in Profile → Settings → Data sources, and next to exercise instructions and scanned products.
