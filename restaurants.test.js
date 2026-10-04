@@ -18,7 +18,14 @@ test("extras: extra chicken is the same chicken, extra paneer is Mexican paneer"
   assert.ok(a.parts.some(function (x) { return x.label === "Extra crispy peri peri chicken"; }));
   assert.ok(b.parts.some(function (x) { return x.label === "Extra mexican paneer"; }));
   assert.ok(b.parts.some(function (x) { return x.name === "GUACAMOLE"; }));
-  assert.strictEqual(b.kcal, a.kcal - 238 + 291 + 148);
+});
+
+test("an add-on sold as a side is 30% of that side; others keep the calculator value", function () {
+  assert.deepStrictEqual(R.addonRow(["MEXICAN PANEER", 291, 22.6, 13.5, 7.5]).slice(0, 5), ["MEXICAN PANEER", 272, 21.2, 12.6, 7]); // side 908 kcal
+  assert.deepStrictEqual(R.addonRow(["CRISPY PERI PERI CHICKEN", 238, 13.4, 19.4, 13.8]), ["CRISPY PERI PERI CHICKEN", 238, 13.4, 19.4, 13.8]);
+  var a = p("cb peri peri chicken burrito extra chicken"), b = p("cb peri peri chicken burrito with extra paneer and guacamole");
+  assert.strictEqual(b.kcal, a.kcal - 238 + 272 + 185); // guacamole side 617 → 185
+  assert.strictEqual(p("cb mexican paneer bowl extra corn salsa").kcal - p("cb mexican paneer bowl").kcal, 103); // corn salsa side 342 → 103
 });
 
 test("rice, beans and toppings follow what's said", function () {

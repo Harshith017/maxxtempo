@@ -2109,7 +2109,8 @@ function restaurantFood(r, meal){
 function openCB(){
   const d = $('#dlg'), R = Restaurants; let meal = 'ricebowl', size = 'regular', picks = null;
   const opt = (rows, sel, none) => (none?`<option value="">${none}</option>`:'') + rows.map(r => `<option value="${esc(r[0])}" ${r[0]===sel?'selected':''}>${esc(R.titleCase(r[0]))} · ${n0(r[1])} kcal</option>`).join('');
-  const chk = (rows, on, grp) => rows.map(r => `<label class="check"><input type="checkbox" data-g="${grp}" value="${esc(r[0])}" ${on.includes(r[0])?'checked':''}> ${esc(R.titleCase(r[0]))} <span class="muted small">${n0(r[1])} kcal</span></label>`).join('');
+  // Add-on groups show the add-on portion (30% of the matching side, where there is one).
+  const chk = (rows, on, grp) => (['extraToppings','extraFillings','makeItRich','extras'].includes(grp) ? rows.map(R.addonRow) : rows).map(r => `<label class="check"><input type="checkbox" data-g="${grp}" value="${esc(r[0])}" ${on.includes(r[0])?'checked':''}> ${esc(R.titleCase(r[0]))} <span class="muted small">${n0(r[1])} kcal</span></label>`).join('');
   const fresh = () => {
     const L = c => R.list(meal, c, size);
     picks = {protein:(L('proteins')[0]||[])[0], rice:meal==='salad'||meal==='tacos'||meal==='nachos'?'':'CILANTRO RICE', beans:meal==='tacos'?'':'BLACK BEANS',
@@ -2143,7 +2144,7 @@ function openCB(){
       <div class="full cbtotal"><b>${n0(r.kcal)} kcal</b> · protein ${n1(r.protein)} g · carbs ${n1(r.carbs)} g · fat ${n1(r.fat)} g</div>
       <label class="field">How many<input id="cb_qty" type="number" min="1" max="10" step="1" value="1"></label>
       <label class="field">Meal<select id="cb_when">${MEALS.map(m=>`<option ${m===guessMeal()?'selected':''}>${m}</option>`).join('')}</select></label>
-      <div class="full muted small">From California Burrito’s nutrition calculator.</div>
+      <div class="full muted small">From California Burrito’s nutrition calculator. Add-ons sold as a side count as 30% of that side.</div>
       <div class="full row"><span class="spacer"></span><button class="btn ghost" type="button" id="cb_cancel">Cancel</button><button class="btn" type="submit">Log it</button></div></form>`;
     $('#cb_cancel').onclick = () => d.close();
     $('#cb_meal').onchange = ev => { meal = ev.target.value; size = R.MEALS[meal].sizes[0]; fresh(); draw(); };
