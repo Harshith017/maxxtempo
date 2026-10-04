@@ -209,6 +209,8 @@ function dayTotals(day){
     for (const m of MICROS) t.micros[m.key]+= (f.micros&&f.micros[m.key])||0;
   }
   t.alcohol = (day.foods||[]).reduce((s,f)=>s+(f.alcohol||0),0);
+  // Fat from foods that say how much of it is saturated (restaurant menus often don't).
+  t.fat_split = (day.foods||[]).reduce((s,f)=>s+(f.no_fat_split?0:(f.fat||0)),0);
   t.water = (day.water||[]).reduce((s,w)=>s+(w.ml||0),0);
   t.gym = (day.exercises||[]).reduce((s,e)=>s+(e.kcal||0),0);
   t.sport = (day.sports||[]).reduce((s,e)=>s+(e.kcal||0),0);
@@ -634,7 +636,20 @@ function localParse(text, date){
     return true; };
   // Commas and new lines separate entries; gym sets are read before "and"/"+" split them ("pull ups +10kg 3x8").
   const sports = [];
-  for (const chunk of text.split(/\s*(?:,|;|\n)\s*/).map(x=>x.trim()).filter(Boolean)) {
+  // Restaurant meals ("CB peri peri chicken burrito, extra paneer"): the pieces after it belong to it.
+  let chunks = text.split(/\s*(?:,|;|\n)\s*/).map(x=>x.trim()).filter(Boolean);
+  if (typeof Restaurants !== 'undefined') {
+    const keep = [];
+    for (let i = 0; i < chunks.length; i++) {
+      if (!Restaurants.isCB(chunks[i])) { keep.push(chunks[i]); continue; }
+      const sp = Restaurants.splitOrder(chunks[i]); let t = sp.order;
+      if (!sp.rest.length) while (i+1 < chunks.length && Restaurants.isModifier(chunks[i+1])) t += ' ' + chunks[++i];
+      const r = Restaurants.parse(t);
+      if (r && !r.need) { foods.push(restaurantFood(r, meal)); keep.push(...sp.rest); } else keep.push(chunks[i]);
+    }
+    chunks = keep;
+  }
+  for (const chunk of chunks) {
     if (gymHit(chunk)) continue;
     // "cricket nets 90 min, bowled 6 overs": details after a comma belong to the session before.
     const last = sports[sports.length-1];
@@ -1845,7 +1860,7 @@ function viewToday(){
           ['Protein', t.protein, T.protein, 'g', 'more', 'var(--protein)'],
           ['Fat', t.fat, T.fat, 'g', 'range', 'var(--fat)'],
           ['Saturated', t.micros.sat_fat_g, T.micros.sat_fat_g, 'g', 'limit', 'var(--fat)', true],
-          ['Unsaturated', Math.max(0, t.fat - t.micros.sat_fat_g), 0, 'g', 'info', 'var(--fat)', true],
+          ['Unsaturated', Math.max(0, t.fat_split - t.micros.sat_fat_g), 0, 'g', 'info', 'var(--fat)', true],
           ['Fibre', t.fiber, T.fiber, 'g', 'more', 'var(--ink-3)'],
           ['Added sugar', t.sugar, T.sugar, 'g', 'limit', 'var(--ink-3)'],
         ];
@@ -1856,7 +1871,7 @@ function viewToday(){
         </div>
         <div class="mrows">${rows.map(([l,v,tg,u,kind,c,sub])=>{
           // Unsaturated has no target: show its share of the fat eaten instead.
-          if (kind==='info') return `<div class="mrow sub"><span class="sw"></span><span class="ml">${l}</span><span class="mv">${n0(v)}<span class="muted"> g</span></span><span class="mp muted">${t.fat>0?Math.round(v/t.fat*100)+'%':''}</span><span class="muted small">of fat</span></div>`;
+          if (kind==='info') return `<div class="mrow sub"><span class="sw"></span><span class="ml">${l}</span><span class="mv">${n0(v)}<span class="muted"> g</span></span><span class="mp muted">${t.fat_split>0?Math.round(v/t.fat_split*100)+'%':''}</span><span class="muted small" title="${t.fat_split<t.fat-0.5?'Restaurant meals that don’t give a saturated / unsaturated split are left out':''}">${t.fat_split<t.fat-0.5?'of known fat':'of fat'}</span></div>`;
           const st = hasFood ? goalState(v,tg,kind) : null;
           return `<div class="mrow${sub?' sub':''}"><span class="sw" style="background:${c}"></span><span class="ml">${l}</span><span class="mv">${n0(v)}<span class="muted"> / ${kind==='limit'?'≤':''}${n0(tg)} ${u}</span></span><span class="mp" style="color:${st?stText(st):'var(--ink-3)'}">${hasFood?Math.round(P(v,tg)):0}%</span>${statePill(st)||'<span></span>'}</div>`; }).join('')}</div>
         <div class="stat3">
@@ -1974,6 +1989,7 @@ function sourcesHtml(){
     <li><b>Foods:</b> MaxxTempo’s table (IFCT 2017 and USDA averages); Indian recipes from the <a href="https://www.anuvaad.org.in/indian-nutrient-databank/" target="_blank" rel="noopener">Indian Nutrient Databank (INDB)</a>, Vijayakumar et al. 2024, CC BY 4.0; <a href="https://fdc.nal.usda.gov" target="_blank" rel="noopener">USDA FoodData Central</a> SR Legacy, public domain.</li>
     <li><b>Sports and activities:</b> METs from the <a href="https://pacompendium.com" target="_blank" rel="noopener">2024 Adult Compendium of Physical Activities</a> (Herrmann, Willis, Ainsworth et al., <i>J Sport Health Sci</i> 2024), free to use.</li>
     <li><b>Packaged foods:</b> barcode lookups from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>, © Open Food Facts contributors, <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">ODbL</a>. Scanning uses <a href="https://github.com/zxing-js/browser" target="_blank" rel="noopener">ZXing</a> (MIT / Apache-2.0). Packs that aren’t there are read from a label photo on your phone with <a href="https://github.com/naptha/tesseract.js" target="_blank" rel="noopener">Tesseract.js</a> (Apache-2.0) and shared with your group.</li>
+    <li><b>Restaurants:</b> California Burrito meals use the values from <a href="https://www.californiaburrito.in/nutrition" target="_blank" rel="noopener">their nutrition calculator</a>, part by part.</li>
     <li><b>Exercises:</b> <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noopener">free-exercise-db</a> (public domain); <a href="https://wger.de" target="_blank" rel="noopener">wger</a> (CC-BY-SA, authors listed on each exercise); <a href="https://oss.exercisedb.dev" target="_blank" rel="noopener">ExerciseDB</a> free version (non-commercial, animations from ExerciseDB).</li>
   </ul><div class="muted small">All free, with no accounts or keys. Food and exercise data is stored in the app, so it keeps working even if a source goes offline; only barcode lookups and exercise pictures need the internet.</div>`;
 }
@@ -2081,14 +2097,72 @@ async function searchFoods(q, limit=40){
     return x; };
   return out.map(f => [score(f), f]).sort((a,b) => a[0]-b[0]).map(x => x[1]).slice(0, limit);
 }
+/* ---------- restaurant meals (restaurants.js) ---------- */
+function restaurantFood(r, meal){
+  const q = r.qty || 1, k = v => Math.round(v * q * 10) / 10;
+  const extras = r.parts.filter(x => /^Extra /.test(x.label) || ['GUACAMOLE','MELTED CHEESE QUESO','CHIPOTLE MAYO','SOUTHWEST SAUCE','HOT HABANERO SAUCE','MANGO SALSA','SUNFLOWER SEEDS','CRUSHED CORN CHIPS'].includes(x.name)).map(x => x.label.replace(/^Extra /,'extra '));
+  const micros = {}; for (const m of MICROS) micros[m.key] = 0;
+  return {id:uid(), name:(r.title + (extras.length ? ' + ' + extras.join(', ').toLowerCase() : '')).slice(0,110), quantity:`${q} ${r.unit}${q>1?'s':''}`, grams:0, meal:meal||guessMeal(), time:nowTime(),
+    kcal:k(r.kcal), protein:k(r.protein), carbs:k(r.carbs), fat:k(r.fat), fiber:0, sugar:0, added_sugar:0, alcohol:0, micros, confidence:'high', source:'restaurant',
+    parts:r.parts.map(x => x.label).slice(0,20), restaurant:'California Burrito', no_fat_split:true};
+}
+function openCB(){
+  const d = $('#dlg'), R = Restaurants; let meal = 'ricebowl', size = 'regular', picks = null;
+  const opt = (rows, sel, none) => (none?`<option value="">${none}</option>`:'') + rows.map(r => `<option value="${esc(r[0])}" ${r[0]===sel?'selected':''}>${esc(R.titleCase(r[0]))} · ${n0(r[1])} kcal</option>`).join('');
+  const chk = (rows, on, grp) => rows.map(r => `<label class="check"><input type="checkbox" data-g="${grp}" value="${esc(r[0])}" ${on.includes(r[0])?'checked':''}> ${esc(R.titleCase(r[0]))} <span class="muted small">${n0(r[1])} kcal</span></label>`).join('');
+  const fresh = () => {
+    const L = c => R.list(meal, c, size);
+    picks = {protein:(L('proteins')[0]||[])[0], rice:meal==='salad'||meal==='tacos'||meal==='nachos'?'':'CILANTRO RICE', beans:meal==='tacos'?'':'BLACK BEANS',
+      toppings:(R.DEFAULT_TOPPINGS[size==='one'?'mini':size]||R.DEFAULT_TOPPINGS.regular).filter(x=>L('toppings').some(r=>r[0]===x)), extraToppings:[], extraFillings:[], makeItRich:[], extras:[], dips:[],
+      dressing:meal==='salad'?'CHILLI LIME VINAIGRETTE':'', shell:'SOFT SHELL', filling:(L('filling')[0]||[])[0], snack:(R.CB.munchies.snacks[0]||[])[0], side:(R.CB.sides[0]||[])[0]};
+  };
+  const draw = () => {
+    const L = c => R.list(meal, c, size), M = R.MEALS[meal];
+    const full = (meal==='ricebowl'||meal==='salad')&&size==='pro' || meal==='burrito'&&size==='habanero' || meal==='tacos'&&size==='overcrowded';
+    const r = R.build(meal, size, picks);
+    d.innerHTML = `<form class="form cbform" id="cbform" style="gap:10px"><h2 class="full">California Burrito</h2>
+      <label class="field">Meal<select id="cb_meal">${Object.entries(R.MEALS).map(([k,v])=>`<option value="${k}" ${k===meal?'selected':''}>${v.name}</option>`).join('')}</select></label>
+      ${M.sizes.length>1?`<label class="field">Size<select id="cb_size">${M.sizes.map(z=>`<option value="${z}" ${z===size?'selected':''}>${z==='three'?'3 tacos':z==='one'?'1 taco':z[0].toUpperCase()+z.slice(1)}</option>`).join('')}</select></label>`:''}
+      ${meal==='tacos'?`<label class="field">Shell<select data-s="shell">${opt(L('shell'), picks.shell)}</select></label>`:''}
+      ${meal==='munchies'?`<label class="field full">Snack<select data-s="snack">${opt(R.CB.munchies.snacks, picks.snack)}</select></label>`
+        : meal==='sides'?`<label class="field full">Side<select data-s="side">${opt(R.CB.sides, picks.side)}</select></label>`
+        : meal==='tacos'&&size==='overcrowded'?`<label class="field full">Taco<select data-s="filling">${opt(L('filling'), picks.filling)}</select></label>`
+        : `<label class="field full">${meal==='quesadilla'?'Quesadilla':'Protein'}<select data-s="protein">${opt(L('proteins'), picks.protein)}</select></label>`}
+      ${!full && ['ricebowl','burrito','salad','nachos','tacos'].includes(meal) ? `
+        <label class="field">Rice<select data-s="rice">${opt(L('rice').filter(x=>x[0]!=='NO RICE'), picks.rice, 'No rice')}</select></label>
+        <label class="field">Beans<select data-s="beans">${opt(L('beans').filter(x=>x[0]!=='NO BEANS'), picks.beans, 'No beans')}</select></label>
+        <fieldset class="full cbset"><legend>Toppings</legend>${chk(L('toppings'), picks.toppings, 'toppings')}</fieldset>
+        <fieldset class="full cbset"><legend>Extra toppings</legend>${chk(L('extraToppings'), picks.extraToppings, 'extraToppings')}</fieldset>` : ''}
+      ${meal==='salad'&&!full?`<label class="field full">Dressing<select data-s="dressing">${opt(L('dressing'), picks.dressing, 'No dressing')}</select></label>`:''}
+      ${!(meal==='burrito'&&size==='habanero') && !['quesadilla','munchies','sides'].includes(meal) && !(meal==='tacos'&&size==='overcrowded') ? `
+        <fieldset class="full cbset"><legend>Extra fillings (extra chicken, paneer…)</legend>${chk(L('extraFillings'), picks.extraFillings, 'extraFillings')}</fieldset>
+        <fieldset class="full cbset"><legend>Make it rich</legend>${chk(L('makeItRich'), picks.makeItRich, 'makeItRich')}</fieldset>` : ''}
+      ${meal==='quesadilla'?`<fieldset class="full cbset"><legend>Extras</legend>${chk(R.list('quesadilla','beans','regular'), picks.extras, 'extras')}</fieldset>`:''}
+      ${['quesadilla','munchies'].includes(meal)?`<fieldset class="full cbset"><legend>Dip</legend>${chk(R.CB[meal].chooseyourdip, picks.dips, 'dips')}</fieldset>`:''}
+      ${meal==='nachos'?'<div class="full muted small">Includes a portion of their plain nachos for the chips.</div>':''}
+      <div class="full cbtotal"><b>${n0(r.kcal)} kcal</b> · protein ${n1(r.protein)} g · carbs ${n1(r.carbs)} g · fat ${n1(r.fat)} g</div>
+      <label class="field">How many<input id="cb_qty" type="number" min="1" max="10" step="1" value="1"></label>
+      <label class="field">Meal<select id="cb_when">${MEALS.map(m=>`<option ${m===guessMeal()?'selected':''}>${m}</option>`).join('')}</select></label>
+      <div class="full muted small">From California Burrito’s nutrition calculator.</div>
+      <div class="full row"><span class="spacer"></span><button class="btn ghost" type="button" id="cb_cancel">Cancel</button><button class="btn" type="submit">Log it</button></div></form>`;
+    $('#cb_cancel').onclick = () => d.close();
+    $('#cb_meal').onchange = ev => { meal = ev.target.value; size = R.MEALS[meal].sizes[0]; fresh(); draw(); };
+    if ($('#cb_size')) $('#cb_size').onchange = ev => { size = ev.target.value; fresh(); draw(); };
+    d.querySelectorAll('[data-s]').forEach(el => el.onchange = () => { picks[el.dataset.s] = el.value; draw(); });
+    d.querySelectorAll('[data-g]').forEach(el => el.onchange = () => { const g = el.dataset.g; picks[g] = [...d.querySelectorAll(`[data-g="${g}"]:checked`)].map(x=>x.value); draw(); });
+    $('#cbform').onsubmit = async ev => { ev.preventDefault(); const res = R.build(meal, size, picks); res.qty = Math.max(1, Math.min(10, Math.round(num($('#cb_qty').value,10)||1)));
+      const f = restaurantFood(res, $('#cb_when').value); d.close(); await saveEntry(S.date, {foods:[f]}); setStatus(`Logged ${f.name} · ${n0(f.kcal)} kcal. No AI used.`); };
+  };
+  fresh(); if (!d.open) d.showModal(); draw();
+}
 const SRC_LABEL = {mine:'my food', builtin:'built in', indb:'INDB', usda:'USDA', off:'Open Food Facts', group:'added by your group', label:'from the label'};
 function openFoodSearch(){
   const d = $('#dlg');
   d.innerHTML = `<div class="fsearch"><h2>Find a food</h2>
     <label class="field full">Search<input id="fq" type="search" placeholder="e.g. almonds, paneer tikka, oats" autocomplete="off"></label>
     <div id="fres" class="exres"><div class="muted small">${n0(FOODS.length + (S.libFoods||[]).length)} Indian and everyday foods, plus about 7,200 from USDA. No AI used.</div></div>
-    <div class="row"><button class="btn ghost sm" id="fscan">Scan a barcode</button><button class="btn ghost sm" id="flabel">From a label</button><span class="spacer"></span><button class="btn ghost" id="fclose">Close</button></div></div>`;
-  d.showModal(); $('#fclose').onclick = () => d.close(); $('#fscan').onclick = () => openScanner(); $('#flabel').onclick = () => openLabel('', ($('#fq')?.value||'').trim(), 'A packed food without a barcode, or one you’d rather add by hand?');
+    <div class="row"><button class="btn ghost sm" id="fscan">Scan a barcode</button><button class="btn ghost sm" id="flabel">From a label</button><button class="btn ghost sm" id="fcb">California Burrito</button><span class="spacer"></span><button class="btn ghost" id="fclose">Close</button></div></div>`;
+  d.showModal(); $('#fclose').onclick = () => d.close(); $('#fscan').onclick = () => openScanner(); $('#fcb').onclick = () => openCB(); $('#flabel').onclick = () => openLabel('', ($('#fq')?.value||'').trim(), 'A packed food without a barcode, or one you’d rather add by hand?');
   let t = null, list = [];
   $('#fq').addEventListener('input', ev => { clearTimeout(t); t = setTimeout(async () => {
     const q = ev.target.value; if (!q.trim()) { $('#fres').innerHTML=''; return; }
