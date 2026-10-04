@@ -639,13 +639,17 @@ function localParse(text, date){
   // Restaurant meals ("CB peri peri chicken burrito, extra paneer"): the pieces after it belong to it.
   let chunks = text.split(/\s*(?:,|;|\n)\s*/).map(x=>x.trim()).filter(Boolean);
   if (typeof Restaurants !== 'undefined') {
-    const keep = [];
-    for (let i = 0; i < chunks.length; i++) {
-      if (!Restaurants.isCB(chunks[i])) { keep.push(chunks[i]); continue; }
-      const sp = Restaurants.splitOrder(chunks[i]); let t = sp.order;
-      if (!sp.rest.length) while (i+1 < chunks.length && Restaurants.isModifier(chunks[i+1])) t += ' ' + chunks[++i];
+    // Once one dish is from California Burrito, other dishes of theirs in the same entry are too.
+    const cbAll = chunks.some(c => Restaurants.isCB(c)), DISH = /\b(bowl|burrito|salad|tacos?|quesadilla|nachos|snachos|tostada|popcorn (chicken|mushroom|potato))\b/i;
+    const keep = [], queue = chunks.slice();
+    while (queue.length) {
+      const c = queue.shift();
+      const cb = Restaurants.isCB(c) ? c : cbAll && DISH.test(c) ? 'cb ' + c : null;
+      if (!cb) { keep.push(c); continue; }
+      const sp = Restaurants.splitOrder(cb); let t = sp.order;
+      if (!sp.rest.length) while (queue.length && Restaurants.isModifier(queue[0])) t += ' ' + queue.shift();
       const r = Restaurants.parse(t);
-      if (r && !r.need) { foods.push(restaurantFood(r, meal)); keep.push(...sp.rest); } else keep.push(chunks[i]);
+      if (r && !r.need) { foods.push(restaurantFood(r, meal)); queue.unshift(...sp.rest); } else keep.push(c);
     }
     chunks = keep;
   }
@@ -2102,8 +2106,8 @@ function restaurantFood(r, meal){
   const q = r.qty || 1, k = v => Math.round(v * q * 10) / 10;
   const extras = r.parts.filter(x => /^Extra /.test(x.label) || ['GUACAMOLE','MELTED CHEESE QUESO','CHIPOTLE MAYO','SOUTHWEST SAUCE','HOT HABANERO SAUCE','MANGO SALSA','SUNFLOWER SEEDS','CRUSHED CORN CHIPS'].includes(x.name)).map(x => x.label.replace(/^Extra /,'extra '));
   const micros = {}; for (const m of MICROS) micros[m.key] = 0;
-  return {id:uid(), name:(r.title + (extras.length ? ' + ' + extras.join(', ').toLowerCase() : '')).slice(0,110), quantity:`${q} ${r.unit}${q>1?'s':''}`, grams:0, meal:meal||guessMeal(), time:nowTime(),
-    kcal:k(r.kcal), protein:k(r.protein), carbs:k(r.carbs), fat:k(r.fat), fiber:0, sugar:0, added_sugar:0, alcohol:0, micros, confidence:'high', source:'restaurant',
+  return {id:uid(), name:(r.title + (extras.length ? ' + ' + extras.join(', ').toLowerCase() : '')).slice(0,110), quantity:q===0.5?`half ${r.unit}`:`${q} ${r.unit}${q>1?'s':''}`, grams:0, meal:meal||guessMeal(), time:nowTime(),
+    kcal:k(r.kcal), protein:k(r.protein), carbs:k(r.carbs), fat:k(r.fat), fiber:k(r.fiber||0), sugar:0, added_sugar:0, alcohol:0, micros, confidence:'high', source:'restaurant',
     parts:r.parts.map(x => x.label).slice(0,20), restaurant:'California Burrito', no_fat_split:true};
 }
 function openCB(){
@@ -2141,7 +2145,7 @@ function openCB(){
       ${meal==='quesadilla'?`<fieldset class="full cbset"><legend>Extras</legend>${chk(R.list('quesadilla','beans','regular'), picks.extras, 'extras')}</fieldset>`:''}
       ${['quesadilla','munchies'].includes(meal)?`<fieldset class="full cbset"><legend>Dip</legend>${chk(R.CB[meal].chooseyourdip, picks.dips, 'dips')}</fieldset>`:''}
       ${meal==='nachos'?'<div class="full muted small">Includes a portion of their plain nachos for the chips.</div>':''}
-      <div class="full cbtotal"><b>${n0(r.kcal)} kcal</b> · protein ${n1(r.protein)} g · carbs ${n1(r.carbs)} g · fat ${n1(r.fat)} g</div>
+      <div class="full cbtotal"><b>${n0(r.kcal)} kcal</b> · protein ${n1(r.protein)} g · carbs ${n1(r.carbs)} g · fat ${n1(r.fat)} g${r.fiber?` · fibre ${n1(r.fiber)} g`:''}</div>
       <label class="field">How many<input id="cb_qty" type="number" min="1" max="10" step="1" value="1"></label>
       <label class="field">Meal<select id="cb_when">${MEALS.map(m=>`<option ${m===guessMeal()?'selected':''}>${m}</option>`).join('')}</select></label>
       <div class="full muted small">From California Burrito’s nutrition calculator. Toppings and sauces added on that are also sold as a side count as 30% of that side.</div>
