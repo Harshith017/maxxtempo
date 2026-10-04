@@ -53,3 +53,10 @@ test("matches the calculator: Pro salad, grilled chicken, extra grilled chicken"
   assert.deepStrictEqual([r.kcal, r.fat, r.protein, r.carbs], [786, 38.2, 75.4, 46.8]);
   assert.strictEqual(R.parse("I went to California and ate 2 roti"), null);
 });
+
+test("add-on wording, half portions and owner-given fibre", function () {
+  var r = p("California chicken pro salad bowl with add on chicken");
+  assert.deepStrictEqual([r.kcal, r.fat, r.protein, r.carbs, r.fiber], [786, 38.2, 75.4, 46.8, 12]);
+  assert.strictEqual(p("cb mexican paneer pro salad").fiber, 15);
+  assert.strictEqual(p("half california cheesy chicken dominator quesadilla").qty, 0.5);
+});
