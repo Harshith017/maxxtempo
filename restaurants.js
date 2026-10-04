@@ -137,7 +137,9 @@ function parse(text) {
   if (!BRAND.test(t)) return null;
   t = t.replace(BRAND, ' ');
   t = t.replace(/\badd\s*-?\s*ons?\b/g, 'extra');
-  const qtyM = t.match(/^\s*(\d+(?:\.\d+)?|one|two|three|half|1\/2)\s*(x\s)?/); const qty = qtyM ? ({ one: 1, two: 2, three: 3, half: 0.5, '1/2': 0.5 }[qtyM[1]] || +qtyM[1]) : /\bhalf\b/.test(t) ? 0.5 : 1;
+  const qtyM = t.match(/^\s*(1\s*\/\s*2|½|half|quarter|1\s*\/\s*4|\d+(?:\.\d+)?|one|two|three)\s*(x\s)?/);
+  const Q = { one: 1, two: 2, three: 3, half: 0.5, '½': 0.5, quarter: 0.25 };
+  let qty = qtyM ? (Q[qtyM[1]] || (/\//.test(qtyM[1]) ? qtyM[1].split('/').map(Number).reduce((a, b) => a / b) : +qtyM[1])) : /\bhalf\b|½|\b1\s*\/\s*2\b/.test(t) ? 0.5 : 1;
   // Extras first, so "extra paneer" doesn't decide the main protein.
   const extraFillings = [], extraToppings = [];
   t = t.replace(/\b(extra|double|add(ed)?|plus)\s+(bbq |grilled |barbe?que |peri peri |crispy |chipotle |mexican |carnitas )?(chicken|paneer|mushroom|potato)\b/g, (m, a, b, c, kind) => { extraFillings.push(((c || '') + kind).trim()); return ' '; });
@@ -154,6 +156,8 @@ function parse(text) {
   let size = has(/\bmini\b/) ? 'mini' : has(/\bpro\b/) ? 'pro' : has(/\bhabanero\b/) && meal === 'burrito' ? 'habanero' : 'regular';
   // "taco" (one) vs "tacos" (their 3-taco serving), unless a count says otherwise.
   if (meal === 'tacos') size = has(/\bover\s*crowded\b/) ? 'overcrowded' : has(/\b(3|three)\s+(\w+\s+){0,3}tacos?\b/) || (has(/\btacos\b/) && !has(/\b(one|1|single|a)\s+(\w+\s+){0,3}taco\b/)) ? 'three' : 'one';
+  // "2 chicken tacos" is two single tacos; "3 tacos" is their 3-taco serving.
+  if (meal === 'tacos' && size !== 'overcrowded' && qty >= 1 && qty !== 1) { if (qty === 3) { size = 'three'; qty = 1; } else size = 'one'; }
   const picks = { extraFillings: [], extraToppings: [], makeItRich: [], toppings: [], extras: [], dips: [], shell: has(/\b(crunchy|crispy|hard)\s*(taco\s*)?shells?\b|\bcrunchy\b/) ? 'CRUNCHY SHELL' : 'SOFT SHELL' };
   const assumed = [];
   if (meal === 'munchies') { const s = snack || CB.munchies.snacks.find(r => r[0] === (has(/topped nachos/) ? (has(/chicken/) ? 'Topped Nachos - Chicken' : 'Topped Nachos - Veg') : has(/popcorn chicken/) ? 'Popcorn Chicken' : has(/popper/) ? 'Crispy Peri-Peri Chicken Popper' : has(/popcorn mushroom/) ? (has(/dip/) ? 'Popcorn Mushroom with dip' : 'Popcorn Mushroom') : has(/popcorn potato/) ? 'Popcorn Potato' : has(/avocado/) ? 'Avocado Tostada' : has(/cheesy tostada/) ? 'Cheesy Tostada' : has(/tostada/) ? 'Veg Tostada' : has(/snachos/) ? 'Snachos' : has(/plain nachos/) ? 'Plain Nachos' : 'Tortilla Chips')); picks.snack = s && s[0]; }

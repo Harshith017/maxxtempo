@@ -60,3 +60,9 @@ test("add-on wording, half portions and owner-given fibre", function () {
   assert.strictEqual(p("cb mexican paneer pro salad").fiber, 15);
   assert.strictEqual(p("half california cheesy chicken dominator quesadilla").qty, 0.5);
 });
+
+test("halves and counts", function () {
+  ["Half California Cheesy Chicken Dominator Quesadilla", "1/2 california cheesy chicken dominator quesadilla", "½ cb chicken quesadilla", "california cheesy chicken dominator quesadilla half"].forEach(function (s) { assert.strictEqual(p(s).qty, 0.5, s); });
+  var two = p("2 cb chicken tacos"); assert.strictEqual(two.size, "one"); assert.strictEqual(two.qty, 2);
+  var three = p("3 cb chicken tacos"); assert.strictEqual(three.size, "three"); assert.strictEqual(three.qty, 1);
+});
