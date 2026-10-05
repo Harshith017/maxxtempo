@@ -308,7 +308,7 @@ function buildSessionsNow(){
       if (ex.muscle_group==='cardio' && !(ex.sets||[]).length) continue;
       const k = exKey(ex.name);
       if (!perDay.has(k)) perDay.set(k,{name:ex.name,group:ex.muscle_group,sets:[]});
-      perDay.get(k).sets.push(...(ex.sets||[]));
+      perDay.get(k).sets.push(...(ex.sets||[]).filter(x=>x.type!=='warmup'));
     }
     for (const [k,s] of perDay) {
       if (!s.sets.length) continue;
@@ -333,7 +333,7 @@ function periodStats(a,b){
   for (const [date,day] of S.days) {
     if (date<a||date>b) continue;
     const ex = day.exercises||[], sports = day.sports||[]; if (!ex.length && !sports.length) continue;
-    days++; for (const e of ex){ sets+=(e.sets||[]).length; volume+=(e.sets||[]).reduce((s,x)=>s+(x.weight||0)*(x.reps||0),0); kcal+=e.kcal||0; }
+    days++; for (const e of ex){ const ws=(e.sets||[]).filter(x=>x.type!=='warmup'); sets+=ws.length; volume+=ws.reduce((s,x)=>s+(x.weight||0)*(x.reps||0),0); kcal+=e.kcal||0; }
     for (const x of sports) { kcal+=x.kcal||0; const k = x.v===2 ? x.sport : sportTitle({...x, session:null});
       if (x.v===2) { const r = sp[k] ||= {name:k, sessions:0, minutes:0, kcal:0, bowled:0, faced:0}; r.sessions++; r.minutes+=x.minutes||0; r.kcal+=x.kcal||0; r.bowled+=(x.stats||{}).balls_bowled||0; r.faced+=(x.stats||{}).balls_faced||0; continue; }
       const r = sp[k] ||= {name:k, sessions:0, minutes:0, kcal:0, bowled:0, faced:0};
@@ -1566,7 +1566,7 @@ function exerciseList(day){
   const prs = prsOn(day.date); const seenPr = new Set();
   const prTag = e => { const k = exKey(e.name), pr = prs.get(k); if (!pr || seenPr.has(k)) return ''; seenPr.add(k); return ` <span class="prbadge" title="${esc('New personal record: '+pr.text)}">PR</span>`; };
   return ex.map(e=>`<div class="item"><div><div class="nm">${esc(e.name)}${prTag(e)} <span class="tag">${esc(e.muscle_group)}</span></div>
-    <div class="sub">${(e.sets||[]).length ? e.sets.map(s=>s.weight>0?`${n1(s.weight)} × ${s.reps}`:`${s.reps} reps`).join(' · ') : ''}${e.duration_min?`${(e.sets||[]).length?' · ':''}${n0(e.duration_min)} min`:''}</div></div>
+    <div class="sub">${(e.sets||[]).length ? e.sets.map(s=>(s.type&&SET_TYPE[s.type]?SET_TYPE[s.type]+' ':'')+(s.weight>0?`${n1(s.weight)} × ${s.reps}`:`${s.reps} reps`)+(s.rpe?` @${s.rpe}`:'')).join(' · ') : ''}${e.duration_min?`${(e.sets||[]).length?' · ':''}${n0(e.duration_min)} min`:''}</div></div>
     <div class="kc">${n0(e.kcal)}<span class="muted small"> kcal</span></div>
     <div class="acts"><button data-action="editEx" data-id="${e.id}" aria-label="Edit ${esc(e.name)}">Edit</button><button data-action="delEx" data-id="${e.id}" aria-label="Delete ${esc(e.name)}">✕</button></div>
     <div class="howwrap">${howtoFold(e.name)}</div></div>`).join('');
@@ -1783,7 +1783,8 @@ function viewGym(){
   const sel = rows.find(r=>r.e.key===S.gymEx);
   const day = getDay(S.date), hasTraining = (day.sports||[]).length || (day.exercises||[]).length;
   return `<div class="grid">
-    ${loggerHtml('gym')}
+    ${wkPanel()}
+    ${S.workout ? '' : loggerHtml('gym')}
     <section class="panel span2" aria-label="Training on this day"><div class="panel-head"><h2>${S.date===localDate()?'Today’s training':'Training on '+esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'short'}))}</h2>${hasTraining?`<span class="muted small">${n0(dayTotals(day).burned)} kcal</span>`:''}</div>
       ${activityPanel(day)}</section>
     <h2 class="sect">Workout progress</h2>
@@ -1804,6 +1805,234 @@ function viewGym(){
     </section>
   </div>`;
 }
+/* ---------- live workout (start, tick sets off, finish) and routines ----------
+   The workout in progress lives in S.workout and on this device (localStorage), so a
+   closed tab or a lost signal loses nothing. Finishing writes the done sets into the day
+   like any logged exercise; warm-up sets are kept but don't count as working sets. */
+const WK_KEY = 'mt:workout';
+const SET_TYPE = { normal:'', warmup:'W', drop:'D', failure:'F' };
+const SET_TYPE_NAME = { normal:'Normal set', warmup:'Warm-up', drop:'Drop set', failure:'To failure' };
+const RPES = ['', '6', '6.5', '7', '7.5', '8', '8.5', '9', '9.5', '10'];
+function wkLoad(){ try { S.workout = JSON.parse(localStorage.getItem(WK_KEY)||'null'); } catch { S.workout = null; } }
+function wkSave(){ try { S.workout ? localStorage.setItem(WK_KEY, JSON.stringify(S.workout)) : localStorage.removeItem(WK_KEY); } catch {} }
+const fmtDur = ms => { const s = Math.max(0, Math.floor(ms/1000)), h = Math.floor(s/3600), m = Math.floor(s%3600/60); return h ? `${h}h ${pad(m)}m` : `${m}:${pad(s%60)}`; };
+function exGroup(name){
+  const k = buildSessions().get(exKey(name)); if (k && k.group) return k.group;
+  const hits = typeof Gym!=='undefined' ? Gym.search(name, 5) : [];
+  const h = hits.find(x => exKey(x.name)===exKey(name)) || hits[0];
+  return h && MUSCLES.includes(h.group) ? h.group : 'full body';
+}
+// Last time's working sets for an exercise (shown as "Previous").
+function prevSets(name){ const e = buildSessions().get(exKey(name)); const s = e && e.sessions[e.sessions.length-1]; return s ? s.sets : []; }
+const isBar = name => /barbell|squat|deadlift|bench|overhead press|\bohp\b|\brow\b|hip thrust|good morning|rdl|clean|snatch/i.test(name) && !/dumbbell|\bdb\b|machine|cable|smith|goblet|kettlebell/i.test(name);
+const newSet = (o={}) => ({ id:uid(), type:'normal', weight:'', reps:'', rpe:'', done:false, ...o });
+function wkExercise(name, group, o={}){
+  const prev = prevSets(name).filter(s => s.type!=='warmup');
+  const n = o.sets || Math.max(prev.length, 3);
+  const sets = Array.from({length:n}, (_,i) => newSet({ weight: o.weight!=null&&o.weight!=='' ? String(o.weight) : '', reps: o.reps ? String(o.reps) : '' }));
+  return { id:uid(), name, group: group || exGroup(name), superset: o.superset || null, rest: o.rest || null, sets };
+}
+function wkStart(routine){
+  if (S.workout && !confirm('A workout is already in progress. Discard it and start a new one?')) return;
+  const ex = (routine?.exercises||[]).map(r => { const e = wkExercise(r.name, r.group, r); if (r.warmups) e.sets.unshift(...warmupSets(r.weight || (prevSets(r.name)[0]||{}).weight, r.warmups)); return e; });
+  S.workout = { id:uid(), name: routine ? routine.name : 'Workout', started: new Date().toISOString(), date: localDate(), routine_id: routine ? routine.id : null, exercises: ex };
+  wkSave(); if (S.view!=='gym') setView('gym'); else render(); window.scrollTo({top:0});
+}
+// Warm-up ramp to a working weight: about 50% × 8, 70% × 5, 85% × 3, on the bar for light weights.
+function warmupSets(work, n=3){
+  const w = Number(work)||0, bar = 20, r = x => Math.max(bar, Math.round(x/2.5)*2.5);
+  if (!(w > bar + 10)) return [newSet({type:'warmup', weight: w>0 ? String(bar) : '', reps:'10'})];
+  const plan = [[0.5,8],[0.7,5],[0.85,3]].slice(3-Math.min(3,Math.max(1,n)));
+  return [...new Set(plan.map(([p,reps]) => r(w*p)+'x'+reps))].map(s => { const [kg,reps] = s.split('x'); return newSet({type:'warmup', weight:kg, reps}); });
+}
+// Plates on each side of the bar for a total weight.
+function platesFor(total, bar=20, plates=[25,20,15,10,5,2.5,1.25]){
+  let side = (Number(total)-bar)/2; if (!(side > 0)) return {side:[], left:0};
+  const out = []; for (const p of plates) while (side >= p - 1e-9) { out.push(p); side = Math.round((side-p)*1000)/1000; }
+  return {side:out, left:Math.round(side*2*100)/100};
+}
+function openPlates(kg){
+  const d = $('#dlg'); let bar = 20;
+  const draw = () => { const w = num($('#pl_kg')?.value, 1000) || 0, r = platesFor(w, bar);
+    $('#pl_out').innerHTML = w <= bar ? `<div class="muted">Just the bar (${bar} kg).</div>` : `<div class="plates">${r.side.map(p=>`<span class="plate p${String(p).replace('.','_')}">${p}</span>`).join('')}</div>
+      <div><b>Each side:</b> ${r.side.join(' + ') || 'nothing'} kg${r.left?` <span class="muted small">(${r.left} kg can’t be made with these plates)</span>`:''}</div>`; };
+  d.innerHTML = `<div class="form" style="gap:12px"><h2 class="full">Plate calculator</h2>
+    <label class="field">Total weight (kg)<input id="pl_kg" type="number" step="0.5" inputmode="decimal" value="${esc(kg||'')}"></label>
+    <label class="field">Bar<select id="pl_bar"><option value="20">20 kg (men’s)</option><option value="15">15 kg (women’s)</option><option value="10">10 kg (technique)</option></select></label>
+    <div class="full" id="pl_out"></div>
+    <div class="full muted small">Plates: 25, 20, 15, 10, 5, 2.5 and 1.25 kg.</div>
+    <div class="full row"><span class="spacer"></span><button class="btn" id="pl_close">Done</button></div></div>`;
+  if (!d.open) d.showModal();
+  $('#pl_kg').oninput = draw; $('#pl_bar').onchange = ev => { bar = Number(ev.target.value); draw(); }; $('#pl_close').onclick = () => d.close(); draw();
+}
+// Pick an exercise: your own first, then the libraries.
+function openExPicker(onPick, title='Add exercise'){
+  const d = $('#dlg'), mine = [...buildSessions().values()].sort((a,b)=>b.sessions.length-a.sessions.length).map(e=>({name:e.name, group:e.group}));
+  const list = q => { const t = q.trim().toLowerCase();
+    const a = (t ? mine.filter(e=>e.name.toLowerCase().includes(t)) : mine).slice(0,12).map(e=>({...e, mine:true}));
+    const b = t && typeof Gym!=='undefined' ? Gym.search(t, 30).filter(x=>!a.some(y=>exKey(y.name)===exKey(x.name))) : [];
+    return [...a, ...b].slice(0,40); };
+  let rows = list('');
+  const draw = () => { $('#xp_res').innerHTML = rows.length ? rows.map((x,i)=>`<button class="exrow" data-i="${i}"><span>${esc(x.name)}${x.mine?' <span class="muted small">· yours</span>':''}</span><span class="tag">${esc(x.group||'')}</span></button>`).join('')
+      : `<div class="empty">Nothing found. <button class="linkbtn" id="xp_custom">Add “${esc($('#xp_q').value.trim())}” as your own exercise</button></div>`;
+    const c = $('#xp_custom'); if (c) c.onclick = () => { const n = titleCase($('#xp_q').value.trim()); if (n) { d.close(); onPick({name:n, group:exGroup(n)}); } }; };
+  d.innerHTML = `<div class="fsearch"><h2>${esc(title)}</h2><label class="field full">Search<input id="xp_q" type="search" placeholder="e.g. bench, lat pulldown, squat" autocomplete="off"></label>
+    <div id="xp_res" class="exres"></div><div class="row"><span class="spacer"></span><button class="btn ghost" id="xp_close">Close</button></div></div>`;
+  if (!d.open) d.showModal();
+  $('#xp_close').onclick = () => d.close();
+  $('#xp_q').oninput = ev => { rows = list(ev.target.value); draw(); };
+  $('#xp_res').onclick = ev => { const b = ev.target.closest('[data-i]'); if (!b) return; const x = rows[+b.dataset.i]; d.close(); onPick({name:x.name, group:MUSCLES.includes(x.group)?x.group:exGroup(x.name)}); };
+  draw(); setTimeout(() => $('#xp_q')?.focus(), 50);
+}
+const SS_LETTERS = 'ABCDEFGH';
+function wkPanel(){
+  const w = S.workout;
+  if (!w) {
+    const rs = (S.routines||[]).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+    return `<section class="panel span2 wkstart" aria-label="Workout"><div class="panel-head"><h2>Workout</h2>${hideBtn('wk','workout')}</div>
+      ${isHidden('wk') ? '' : `<div class="row"><button class="btn" data-action="wkStart">Start empty workout</button><button class="btn ghost" data-action="routineNew">New routine</button></div>
+      ${rs.length ? `<h3>My routines</h3><div class="routines">${rs.map(r=>`<div class="routine"><div><b>${esc(r.name)}</b><div class="muted small">${esc((r.exercises||[]).map(e=>e.name).join(' · ')||'No exercises yet')}</div></div>
+        <div class="row"><button class="btn sm" data-action="wkStartRoutine" data-id="${esc(r.id)}">Start</button><button class="btn ghost sm" data-action="routineEdit" data-id="${esc(r.id)}" aria-label="Edit ${esc(r.name)}">Edit</button></div></div>`).join('')}</div>`
+        : `<div class="muted small">Save your usual sessions (Push day, Legs…) as routines and start them with one tap. Or start an empty workout and save it as a routine at the end.</div>`}`}
+    </section>`;
+  }
+  const doneSets = w.exercises.reduce((s,e)=>s+e.sets.filter(x=>x.done&&x.type!=='warmup').length,0);
+  const vol = w.exercises.reduce((s,e)=>s+e.sets.filter(x=>x.done&&x.type!=='warmup').reduce((a,x)=>a+(Number(x.weight)||0)*(Number(x.reps)||0),0),0);
+  return `<section class="panel span2 wklive" aria-label="Workout in progress">
+    <div class="wkhead"><input class="wkname" data-wkname value="${esc(w.name)}" aria-label="Workout name">
+      <div class="wkstats"><span><b id="wkClock">${fmtDur(Date.now()-Date.parse(w.started))}</b> time</span><span><b>${n0(vol)}</b> kg volume</span><span><b>${doneSets}</b> sets</span></div>
+      <div class="row"><button class="btn ghost sm" data-action="wkDiscard">Discard</button><span class="spacer"></span><button class="btn sm" data-action="wkFinish">Finish</button></div></div>
+    ${w.exercises.map((e,i)=>{
+      const prev = prevSets(e.name).filter(s=>s.type!=='warmup'); let wi = 0, n = 0;
+      const ss = e.superset, ssLast = ss && !(w.exercises[i+1] && w.exercises[i+1].superset===ss);
+      return `<div class="wkex${ss?' ss':''}" data-ss="${esc(ss||'')}">
+        ${ss && !(w.exercises[i-1] && w.exercises[i-1].superset===ss) ? `<div class="sslabel">Superset ${esc(ss)}</div>` : ''}
+        <div class="wkex-h"><div><b>${esc(e.name)}</b> <span class="tag">${esc(e.group)}</span></div>
+          <div class="wkex-tools">
+            ${isBar(e.name)?`<button class="linkbtn" data-action="wkPlates" data-ex="${i}">Plates</button>`:''}
+            <button class="linkbtn" data-action="wkWarmup" data-ex="${i}">Warm-up</button>
+            <button class="linkbtn" data-action="wkSuperset" data-ex="${i}">${ss?'Unlink':'Superset'}</button>
+            <button class="linkbtn" data-action="wkRemoveEx" data-ex="${i}" aria-label="Remove ${esc(e.name)}">Remove</button></div></div>
+        <label class="wkrest muted small">Rest <select data-wkrest="${i}">${['', '0', '30', '60', '90', '120', '150', '180', '240'].map(v=>`<option value="${v}" ${String(e.rest||'')===v?'selected':''}>${v===''?'default':v==='0'?'off':v<60?v+' s':`${Math.floor(v/60)}:${pad(v%60)}`}</option>`).join('')}</select></label>
+        <div class="wkgrid"><span>Set</span><span>Prev</span><span>kg</span><span>Reps</span><span>RPE</span><span></span>
+        ${e.sets.map((s,j)=>{ const p = s.type==='warmup' ? null : prev[wi++]; if (s.type!=='warmup') n++;
+          return `<button class="wtype t-${s.type}" data-action="wkType" data-ex="${i}" data-set="${j}" aria-label="${esc(SET_TYPE_NAME[s.type])}, tap to change">${SET_TYPE[s.type]||n}</button>
+          <span class="wprev">${p ? (p.weight>0?`${n1(p.weight)} × ${p.reps}`:`${p.reps} reps`) : '—'}</span>
+          <input class="wnum${s.done?' done':''}" data-wk="weight" data-ex="${i}" data-set="${j}" inputmode="decimal" value="${esc(s.weight)}" placeholder="${p&&p.weight>0?esc(n1(p.weight)):'–'}" aria-label="kg, set ${j+1}">
+          <input class="wnum${s.done?' done':''}" data-wk="reps" data-ex="${i}" data-set="${j}" inputmode="numeric" value="${esc(s.reps)}" placeholder="${p?esc(p.reps):''}" aria-label="Reps, set ${j+1}">
+          <select class="wrpe" data-wk="rpe" data-ex="${i}" data-set="${j}" aria-label="RPE, set ${j+1}">${RPES.map(r=>`<option ${String(s.rpe)===r?'selected':''}>${r}</option>`).join('')}</select>
+          <button class="wdone${s.done?' on':''}${s.pr?' pr':''}" data-action="wkDone" data-ex="${i}" data-set="${j}" data-last="${ssLast||!ss?1:0}" aria-pressed="${!!s.done}" aria-label="Set ${j+1} done">${s.pr?'PR':'✓'}</button>`; }).join('')}
+        </div>
+        <div class="row"><button class="btn ghost sm" data-action="wkAddSet" data-ex="${i}">+ Add set</button>${e.sets.length>1?`<button class="linkbtn" data-action="wkDelSet" data-ex="${i}">Remove last set</button>`:''}<span class="spacer"></span>${howtoFold(e.name)}</div>
+      </div>`; }).join('')}
+    <div class="row"><button class="btn ghost" data-action="wkAddEx">+ Add exercise</button></div>
+    <div class="muted small">Tap a set number to make it a warm-up (W), drop set (D) or set to failure (F). Empty boxes use last time’s numbers when you tick ✓.</div>
+  </section>`;
+}
+function wkFinishNow(){
+  const w = S.workout; if (!w) return;
+  const ex = w.exercises.map(e => ({...e, sets:e.sets.filter(s=>s.done)})).filter(e=>e.sets.length);
+  // A superset needs two exercises; one left on its own (the other had no sets done) is a normal exercise.
+  for (const e of ex) if (e.superset && ex.filter(x=>x.superset===e.superset).length < 2) e.superset = null;
+  if (!ex.length) { if (confirm('No sets are ticked off. Discard this workout?')) { S.workout = null; wkSave(); render(); } return; }
+  const date = w.date || localDate(), time = new Date(w.started).toTimeString().slice(0,5), minutes = Math.max(1, Math.round((Date.now()-Date.parse(w.started))/60000));
+  const out = ex.map(e => { const x = {id:uid(), name:e.name, muscle_group:e.group, sets:e.sets.map(s=>({weight:Number(s.weight)||0, reps:Number(s.reps)||0, ...(s.type!=='normal'?{type:s.type}:{}), ...(s.rpe?{rpe:Number(s.rpe)}:{})})), time, source:'workout', workout_id:w.id, ...(e.superset?{superset:e.superset}:{})};
+    x.kcal = exerciseKcal(x, date); return x; });
+  const work = out.flatMap(e=>e.sets.filter(s=>s.type!=='warmup')), volume = work.reduce((a,s)=>a+s.weight*s.reps,0);
+  const summary = {id:w.id, name:w.name, started:w.started, minutes, exercises:out.length, sets:work.length, volume:Math.round(volume), routine_id:w.routine_id||null};
+  writeDay(date, d => { d.exercises = [...(d.exercises||[]), ...out]; d.workouts = [...(d.workouts||[]), summary];
+    const rec = Gym.recovery(d.exercises.map(e=>({...e, sets:(e.sets||[]).filter(s=>s.type!=='warmup')}))); if (rec) d.gym_recovery = {...rec, ready_at:new Date(Date.now()+rec.hours*3600e3).toISOString()}; });
+  const routine = (S.routines||[]).find(r=>r.id===w.routine_id);
+  const prs = ex.flatMap(e => e.sets.filter(s=>s.pr).map(s => ({name:e.name, text: Number(s.weight)>0 ? `${n1(Number(s.weight))} kg × ${s.reps}` : `${s.reps} reps`})));
+  S.workout = null; wkSave(); stopRest(); render();
+  wkSummary(summary, out, date, routine, prs);
+}
+function wkSummary(sm, out, date, routine, prs){
+  const d = $('#dlg');
+  d.innerHTML = `<div class="form" style="gap:12px"><h2 class="full">Workout done 💪</h2>
+    <div class="full tiles"><div class="tile"><span class="l">Time</span><span class="v">${sm.minutes<60?sm.minutes+' min':Math.floor(sm.minutes/60)+'h '+pad(sm.minutes%60)}</span></div>
+      <div class="tile"><span class="l">Volume</span><span class="v">${n0(sm.volume)}<span class="muted" style="font-size:16px"> kg</span></span></div>
+      <div class="tile"><span class="l">Sets</span><span class="v">${sm.sets}</span></div><div class="tile"><span class="l">Exercises</span><span class="v">${sm.exercises}</span></div></div>
+    ${prs.length?`<div class="full"><b>New personal records</b><ul class="tips">${prs.map(p=>`<li>${esc(p.name)}: ${esc(p.text)}</li>`).join('')}</ul></div>`:''}
+    <div class="full row">${routine?`<button class="btn ghost" id="ws_upd">Update “${esc(routine.name)}”</button>`:`<button class="btn ghost" id="ws_save">Save as routine</button>`}<span class="spacer"></span><button class="btn" id="ws_ok">Done</button></div></div>`;
+  if (!d.open) d.showModal();
+  $('#ws_ok').onclick = () => d.close();
+  const asRoutine = (id, name) => ({ id, name, exercises: out.map(e => { const ws = e.sets.filter(s=>s.type!=='warmup'); return {name:e.name, group:e.muscle_group, sets:Math.max(1,ws.length), reps:(ws[0]||{}).reps||'', weight:(ws[0]||{}).weight||'', warmups:e.sets.filter(s=>s.type==='warmup').length, superset:e.superset||null}; }), updated:Date.now() });
+  if ($('#ws_save')) $('#ws_save').onclick = () => { const name = prompt('Name this routine', sm.name==='Workout'?'':sm.name); if (!name) return; saveRoutine(asRoutine(uid(), name.trim().slice(0,40))); d.close(); toast(`Saved routine “${name.trim().slice(0,40)}”`); };
+  if ($('#ws_upd')) $('#ws_upd').onclick = () => { saveRoutine(asRoutine(routine.id, routine.name)); d.close(); toast(`Updated “${routine.name}”`); };
+}
+function saveRoutine(r){ S.routines = [...(S.routines||[]).filter(x=>x.id!==r.id), r]; render(); if (S.db) S.db.doc('routines/'+r.id).set(r).catch(()=>{}); }
+function openRoutine(id){
+  const d = $('#dlg'); const orig = (S.routines||[]).find(r=>r.id===id);
+  const r = orig ? JSON.parse(JSON.stringify(orig)) : {id:uid(), name:'', exercises:[]};
+  const draw = () => {
+    d.innerHTML = `<form class="form" id="rtform" style="gap:12px"><h2 class="full">${orig?'Edit routine':'New routine'}</h2>
+      <label class="field full">Name<input id="rt_name" maxlength="40" value="${esc(r.name)}" placeholder="e.g. Push day" required></label>
+      <div class="full rtlist">${r.exercises.map((e,i)=>`<div class="rtrow${e.superset?' ss':''}"><div><b>${esc(e.name)}</b> <span class="tag">${esc(e.group||'')}</span>${e.superset?` <span class="muted small">superset ${esc(e.superset)}</span>`:''}</div>
+        <div class="rtnums"><label>Sets<input type="number" min="1" max="12" data-rt="sets" data-i="${i}" value="${esc(e.sets||3)}"></label><label>Reps<input type="number" min="1" max="100" data-rt="reps" data-i="${i}" value="${esc(e.reps||'')}" placeholder="8"></label><label>kg<input type="number" step="0.5" min="0" data-rt="weight" data-i="${i}" value="${esc(e.weight||'')}" placeholder="last"></label><label>Warm-ups<input type="number" min="0" max="4" data-rt="warmups" data-i="${i}" value="${esc(e.warmups||0)}"></label></div>
+        <div class="row"><button type="button" class="linkbtn" data-rtup="${i}" ${i?'':'disabled'}>Move up</button><button type="button" class="linkbtn" data-rtss="${i}">${e.superset?'Unlink superset':'Superset with next'}</button><button type="button" class="linkbtn" data-rtdel="${i}">Remove</button></div></div>`).join('') || '<div class="muted small">No exercises yet.</div>'}</div>
+      <div class="full row"><button type="button" class="btn ghost sm" id="rt_add">+ Add exercise</button></div>
+      <div class="full row">${orig?'<button type="button" class="btn ghost danger" id="rt_del">Delete routine</button>':''}<span class="spacer"></span><button type="button" class="btn ghost" id="rt_cancel">Cancel</button><button class="btn" type="submit">Save</button></div></form>`;
+    if (!d.open) d.showModal();
+    const keep = () => { r.name = $('#rt_name').value; d.querySelectorAll('[data-rt]').forEach(el => { r.exercises[+el.dataset.i][el.dataset.rt] = el.value; }); };
+    $('#rt_add').onclick = () => { keep(); openExPicker(x => { r.exercises.push({name:x.name, group:x.group, sets:3, reps:'', weight:'', warmups:0}); draw(); }); };
+    $('#rt_cancel').onclick = () => d.close();
+    d.querySelectorAll('[data-rtdel]').forEach(b => b.onclick = () => { keep(); r.exercises.splice(+b.dataset.rtdel,1); draw(); });
+    d.querySelectorAll('[data-rtup]').forEach(b => b.onclick = () => { keep(); const i=+b.dataset.rtup; [r.exercises[i-1], r.exercises[i]] = [r.exercises[i], r.exercises[i-1]]; draw(); });
+    d.querySelectorAll('[data-rtss]').forEach(b => b.onclick = () => { keep(); linkSuperset(r.exercises, +b.dataset.rtss); draw(); });
+    if ($('#rt_del')) $('#rt_del').onclick = () => { if (!confirm(`Delete the routine “${orig.name}”?`)) return; S.routines = (S.routines||[]).filter(x=>x.id!==orig.id); if (S.db) S.db.doc('routines/'+orig.id).delete().catch(()=>{}); d.close(); render(); toast(`Deleted “${orig.name}”`, () => saveRoutine(orig)); };
+    $('#rtform').onsubmit = ev => { ev.preventDefault(); keep(); r.name = r.name.trim().slice(0,40); if (!r.name) return;
+      r.exercises = r.exercises.map(e=>({...e, sets:Math.max(1,Math.min(12,Number(e.sets)||3)), reps:Number(e.reps)||'', weight:Number(e.weight)||'', warmups:Math.max(0,Math.min(4,Number(e.warmups)||0))}));
+      r.updated = Date.now(); saveRoutine(r); d.close(); toast(`Saved “${r.name}”`); };
+  };
+  draw();
+}
+// Superset this exercise with the next one (or unlink it).
+function linkSuperset(list, i){
+  const e = list[i]; if (!e) return;
+  if (e.superset) { const g = e.superset; list.forEach(x => { if (x.superset===g) x.superset = null; }); return; }
+  const next = list[i+1]; if (!next) { toast('Add the next exercise first, then link them.'); return; }
+  const used = new Set(list.map(x=>x.superset).filter(Boolean)); const g = next.superset || [...SS_LETTERS].find(c=>!used.has(c)) || 'A';
+  e.superset = g; next.superset = g;
+}
+function wkAction(a, b){
+  const w = S.workout, i = Number(b.dataset.ex), j = Number(b.dataset.set), e = w && w.exercises[i];
+  switch (a) {
+    case 'wkStart': wkStart(null); break;
+    case 'wkStartRoutine': { const r = (S.routines||[]).find(x=>x.id===b.dataset.id); if (r) wkStart(r); break; }
+    case 'routineNew': openRoutine(null); break;
+    case 'routineEdit': openRoutine(b.dataset.id); break;
+    case 'wkDiscard': if (w && confirm('Discard this workout? Nothing from it will be saved.')) { S.workout = null; wkSave(); stopRest(); render(); } break;
+    case 'wkFinish': wkFinishNow(); break;
+    case 'wkAddEx': openExPicker(x => { S.workout.exercises.push(wkExercise(x.name, x.group)); wkSave(); render(); }); break;
+    case 'wkRemoveEx': if (e && confirm(`Remove ${e.name} from this workout?`)) { if (e.superset) linkSuperset(w.exercises, i); w.exercises.splice(i,1); wkSave(); render(); } break;
+    case 'wkAddSet': if (e) { const last = e.sets[e.sets.length-1] || {}; e.sets.push(newSet({weight:last.weight||'', reps:last.reps||''})); wkSave(); render(); } break;
+    case 'wkDelSet': if (e && e.sets.length>1) { e.sets.pop(); wkSave(); render(); } break;
+    case 'wkType': if (e) { const order = ['normal','warmup','drop','failure'], s = e.sets[j]; s.type = order[(order.indexOf(s.type)+1)%order.length]; wkSave(); render(); } break;
+    case 'wkSuperset': if (e) { linkSuperset(w.exercises, i); wkSave(); render(); } break;
+    case 'wkWarmup': if (e) { const first = e.sets.find(s=>s.type!=='warmup'), prev = prevSets(e.name).find(s=>s.type!=='warmup');
+      const kg = Number(first&&first.weight) || (prev&&prev.weight) || 0; e.sets = e.sets.filter(s=>s.type!=='warmup'||s.done); e.sets.unshift(...warmupSets(kg));
+      wkSave(); render(); toast(kg ? `Added warm-up sets building to ${n1(kg)} kg` : 'Added a warm-up set; type your working weight to get a full ramp'); } break;
+    case 'wkPlates': if (e) { const s = e.sets.find(x=>!x.done && x.type!=='warmup') || e.sets[0]; const p = prevSets(e.name)[0]; openPlates(s.weight || (p&&p.weight) || ''); } break;
+    case 'wkDone': if (e) { const s = e.sets[j];
+      if (s.done) { s.done = false; s.pr = false; wkSave(); render(); break; }
+      const prev = prevSets(e.name).filter(x=>x.type!=='warmup'), pi = e.sets.slice(0,j).filter(x=>x.type!=='warmup').length, p = s.type==='warmup' ? null : prev[pi];
+      if (s.weight==='' && p && p.weight>0) s.weight = String(p.weight);
+      if (s.reps==='' && p) s.reps = String(p.reps);
+      if (!(Number(s.reps)>0)) { toast('Type the reps first.'); break; }
+      s.done = true;
+      // Live PR: heavier than ever, or a better estimated 1RM (or more reps, bodyweight).
+      const hist = buildSessions().get(exKey(e.name));
+      if (hist && hist.sessions.length && s.type!=='warmup') { const wt = Number(s.weight)||0, reps = Number(s.reps)||0;
+        const top = Math.max(...hist.sessions.map(x=>x.top)), best = Math.max(...hist.sessions.map(x=>x.best));
+        const done = e.sets.filter(x=>x.done && x!==s && x.type!=='warmup');
+        const already = done.some(x => (Number(x.weight)||0) >= wt && Number(x.reps) >= reps);
+        if (!already && (hist.sessions[0].bodyweight ? reps > best && !wt : wt > top || (wt>0 && e1rm({weight:wt, reps}) > best + 0.05))) { s.pr = true; toast(`New personal record on ${e.name}! 🎉`); } }
+      wkSave(); render();
+      if (b.dataset.last==='1' && e.rest!=='0') startRest(Number(e.rest)||null); } break;
+  }
+}
+setInterval(() => { if (!S.workout) return; const el = document.getElementById('wkClock'); if (el) el.textContent = fmtDur(Date.now()-Date.parse(S.workout.started)); }, 1000);
 /* ---------- exercise library (exercises.js + data/ex-*.json) ---------- */
 const libCount = () => typeof Gym==='undefined' ? 0 : Gym.EXERCISES.length + Gym.libraries().reduce((s,l)=>s+l.items.length,0);
 function sourcesHtml(){
@@ -2686,6 +2915,7 @@ document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-action],[data-view].tab'); if (!b) return;
   if (b.classList.contains('tab')) return setView(b.dataset.view);
   const a = b.dataset.action, day = getDay(S.date);
+  if (/^(wk|routine)/.test(a)) { wkAction(a, b); return; }
   switch (a) {
     case 'log': submitLog(); break;
     case 'stop': S.ctl?.abort(); break;
@@ -2818,6 +3048,12 @@ document.addEventListener('toggle', ev => { const k = ev.target.dataset && ev.ta
   if (ev.target.open) S.openFolds.add(k); else S.openFolds.delete(k);
   try { localStorage.setItem('fl:folds', JSON.stringify([...S.openFolds])); } catch {} }, true);
 document.addEventListener('input', ev => bindInput(ev.target));
+// Live workout fields: kept as typed, saved on the device, no re-render (keeps the keyboard up).
+document.addEventListener('input', ev => { const t = ev.target, w = S.workout; if (!w) return;
+  if (t.dataset.wk) { const s = w.exercises[+t.dataset.ex]?.sets[+t.dataset.set]; if (s) { s[t.dataset.wk] = t.value.replace(',', '.'); wkSave(); } }
+  else if (t.dataset.wkname!==undefined) { w.name = t.value.slice(0,40) || 'Workout'; wkSave(); } });
+document.addEventListener('change', ev => { const t = ev.target, w = S.workout; if (!w) return;
+  if (t.dataset.wkrest!==undefined) { const e = w.exercises[+t.dataset.wkrest]; if (e) { e.rest = t.value || null; wkSave(); } } });
 document.addEventListener('change', ev => bindInput(ev.target));
 function bindInput(el){
   if (el.id==='exq') { S.exq = el.value; const r=$('#exres'); if (r) r.innerHTML = libResults(el.value); return; }
@@ -3330,6 +3566,8 @@ async function startFor(user){
   db.collection('reports').orderBy('report_date','desc').limit(50).onSnapshot(snap => { S.reports = snap.docs.map(d=>({...d.data()})); render(); });
   db.collection('foodlib').onSnapshot(snap => { if (S.indbBuiltIn) return; const rows=[]; for (const d of snap.docs) { try { rows.push(...JSON.parse(d.data().rows||'[]')); } catch {} } S.libFoods = rows.map(r=>rowToFood(r,'indb')); S.myFoodsVer=(S.myFoodsVer||0)+1; });
   db.collection('foods').limit(1000).onSnapshot(snap => { const m={}; for (const d of snap.docs) m[d.id]={...d.data()}; S.myFoods=m; S.myFoodsVer=(S.myFoodsVer||0)+1; });
+  wkLoad();
+  db.collection('routines').limit(100).onSnapshot(snap => { S.routines = snap.docs.map(d=>({...d.data()})); render(); });
   db.collection('reviews').orderBy('created','desc').limit(10).onSnapshot(snap => { S.reviews = snap.docs.map(d=>({...d.data()})); render(); });
   db.collection('days').orderBy('date','desc').limit(1000).onSnapshot(snap => {
     const m = new Map(); for (const d of snap.docs) m.set(d.id, d.data());
