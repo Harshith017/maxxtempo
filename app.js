@@ -1853,7 +1853,8 @@ function openPlates(kg){
   $('#pl_kg').oninput = draw; $('#pl_bar').onchange = ev => { bar = Number(ev.target.value); draw(); }; $('#pl_close').onclick = () => d.close(); draw();
 }
 // Pick an exercise: your own first, then the libraries.
-function openExPicker(onPick, title='Add exercise'){
+// onBack: where Close (or Esc) returns to, e.g. the routine being edited; without it Close just closes.
+function openExPicker(onPick, title='Add exercise', onBack=null){
   const d = $('#dlg'), mine = [...buildSessions().values()].sort((a,b)=>b.sessions.length-a.sessions.length).map(e=>({name:e.name, group:e.group}));
   const list = q => { const t = q.trim().toLowerCase();
     const a = (t ? mine.filter(e=>e.name.toLowerCase().includes(t)) : mine).slice(0,12).map(e=>({...e, mine:true}));
@@ -1862,13 +1863,17 @@ function openExPicker(onPick, title='Add exercise'){
   let rows = list('');
   const draw = () => { $('#xp_res').innerHTML = rows.length ? rows.map((x,i)=>`<button class="exrow" data-i="${i}"><span>${esc(x.name)}${x.mine?' <span class="muted small">· yours</span>':''}</span><span class="tag">${esc(x.group||'')}</span></button>`).join('')
       : `<div class="empty">Nothing found. <button class="linkbtn" id="xp_custom">Add “${esc($('#xp_q').value.trim())}” as your own exercise</button></div>`;
-    const c = $('#xp_custom'); if (c) c.onclick = () => { const n = titleCase($('#xp_q').value.trim()); if (n) { d.close(); onPick({name:n, group:exGroup(n)}); } }; };
+    const c = $('#xp_custom'); if (c) c.onclick = () => { const n = titleCase($('#xp_q').value.trim()); if (n) { done(); d.close(); onPick({name:n, group:exGroup(n)}); } }; };
   d.innerHTML = `<div class="fsearch"><h2>${esc(title)}</h2><label class="field full">Search<input id="xp_q" type="search" placeholder="e.g. bench, lat pulldown, squat" autocomplete="off"></label>
     <div id="xp_res" class="exres"></div><div class="row"><span class="spacer"></span><button class="btn ghost" id="xp_close">Close</button></div></div>`;
+  const done = () => { d.oncancel = null; };
+  const back = () => { done(); if (onBack) onBack(); else d.close(); };
+  d.oncancel = ev => { if (onBack) { ev.preventDefault(); back(); } else done(); };
   if (!d.open) d.showModal();
-  $('#xp_close').onclick = () => d.close();
+  $('#xp_close').textContent = onBack ? 'Back' : 'Close';
+  $('#xp_close').onclick = back;
   $('#xp_q').oninput = ev => { rows = list(ev.target.value); draw(); };
-  $('#xp_res').onclick = ev => { const b = ev.target.closest('[data-i]'); if (!b) return; const x = rows[+b.dataset.i]; d.close(); onPick({name:x.name, group:MUSCLES.includes(x.group)?x.group:exGroup(x.name)}); };
+  $('#xp_res').onclick = ev => { const b = ev.target.closest('[data-i]'); if (!b) return; const x = rows[+b.dataset.i]; done(); d.close(); onPick({name:x.name, group:MUSCLES.includes(x.group)?x.group:exGroup(x.name)}); };
   draw(); setTimeout(() => $('#xp_q')?.focus(), 50);
 }
 const SS_LETTERS = 'ABCDEFGH';
@@ -1963,7 +1968,7 @@ function openRoutine(id){
       <div class="full row">${orig?'<button type="button" class="btn ghost danger" id="rt_del">Delete routine</button>':''}<span class="spacer"></span><button type="button" class="btn ghost" id="rt_cancel">Cancel</button><button class="btn" type="submit">Save</button></div></form>`;
     if (!d.open) d.showModal();
     const keep = () => { r.name = $('#rt_name').value; d.querySelectorAll('[data-rt]').forEach(el => { r.exercises[+el.dataset.i][el.dataset.rt] = el.value; }); };
-    $('#rt_add').onclick = () => { keep(); openExPicker(x => { r.exercises.push({name:x.name, group:x.group, sets:3, reps:'', weight:'', warmups:0}); draw(); }); };
+    $('#rt_add').onclick = () => { keep(); openExPicker(x => { r.exercises.push({name:x.name, group:x.group, sets:3, reps:'', weight:'', warmups:0}); draw(); }, 'Add exercise', draw); };
     $('#rt_cancel').onclick = () => d.close();
     d.querySelectorAll('[data-rtdel]').forEach(b => b.onclick = () => { keep(); r.exercises.splice(+b.dataset.rtdel,1); draw(); });
     d.querySelectorAll('[data-rtup]').forEach(b => b.onclick = () => { keep(); const i=+b.dataset.rtup; [r.exercises[i-1], r.exercises[i]] = [r.exercises[i], r.exercises[i-1]]; draw(); });
