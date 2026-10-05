@@ -380,6 +380,7 @@ Rules:
 - A body weight like "weight 72.5" or "weighed 72.5kg" goes in body_weight_kg.
 - Apple Health data goes in "health": a line starting "health:", a screenshot of the Health app, or statements like "slept 6h 50m" or "8400 steps today". sleep_minutes is time actually asleep (not time in bed); if a sleep number over 1440 is given it is seconds, so divide by 60. bed_time and wake_time are "HH:MM" when known. active_kcal is Active Energy, resting_kcal is Resting Energy. Leave any value you don't see as null. If the photo is a Health screenshot, it is not food.
 - Leave out anything that is not food, water, supplements, gym, activities, health data or body weight and say so briefly in notes. Put any important assumption in notes, in one short sentence. Use empty arrays when there is nothing.
+${S.view==='gym' ? '- This entry is from the TRAINING page: fill only exercises, activities, gym_recovery and body_weight_kg. Leave foods, supplements, water and health empty; if the entry has food, say in notes "Log food on the Today page".' : '- This entry is from the FOOD page: leave exercises and activities empty and gym_recovery null. If the entry has gym sets or a sport, say in notes "Log training in Train".'}
 Entry: """${text || '(no text, photo only)'}"""`;
 }
 function normalize(res, date){
@@ -695,6 +696,10 @@ async function submitLog(){
   const date = S.date; const p = prof();
   if (text && !S.photo) await Promise.race([loadActs(), new Promise(r => setTimeout(r, 3000))]);
   const local = (text && !S.photo) ? localParse(text, date) : {foods:[], water:0, rest:text?[text]:[], exercises:[], sports:[]};
+  // Food is logged on Today, gym and sport in Train: the other kind is left out with a pointer.
+  const train = S.view==='gym'; let elsewhere = '';
+  if (train && (local.foods.length || local.water)) { elsewhere = ' Food goes on the Today page, so that part wasn’t logged.'; local.foods = []; local.water = 0; }
+  if (!train && (local.exercises.length || local.sports.length)) { elsewhere = ' Gym and sport go in Train, so that part wasn’t logged.'; local.exercises = []; local.sports = []; }
   const localGym = local.exercises.length ? Gym.recovery(local.exercises) : null;
   const restText = local.rest.join(', ');
   const localActs = local.sports.map(sp => makeActivity({key:sp.key, name:sp.name, entry:sp.entry, date, time:nowTime(), qa:[]}, sp.res));
@@ -715,6 +720,8 @@ async function submitLog(){
       const opts = {signal:S.ctl.signal, task:'log'};
       if (S.photo) opts.images = [await toJpeg(S.photo)];
       r = normalize(await S.sample.json(buildPrompt(S.photo ? text : restText, !!S.photo), opts), date);
+      if (train && (r.foods.length || r.water_ml || r.supplements.length)) { elsewhere = ' Food goes on the Today page, so that part wasn’t logged.'; r.foods = []; r.water_ml = 0; r.supplements = []; r.health = null; }
+      if (!train && (r.exercises.length || r.activities.length)) { elsewhere = ' Gym and sport go in Train, so that part wasn’t logged.'; r.exercises = []; r.activities = []; r.gym_recovery = null; }
       // learn what Claude read so the next time is instant
       const alias = local.rest.length===1 && r.foods.length===1 ? (()=>{ let t=parseQty(normFood(local.rest[0])).rest; const w=t.split(' ')[0]; if (UNIT_WORDS[w]) t=t.slice(w.length).trim(); return t; })() : null;
       for (const f of r.foods) if (f.source!=='photo' && f.confidence!=='low') saveMyFood(f, alias);
@@ -728,7 +735,7 @@ async function submitLog(){
     r.exercises = [...local.exercises, ...r.exercises]; r.sportsLocal = localActs;
     if (local.exercises.length) r.gym_recovery = Gym.recovery(r.exercises) || r.gym_recovery;
     if (!r.foods.length && !r.exercises.length && !r.water_ml && !r.body_weight_kg && !r.health && !r.supplements.length && !r.activities.length && !localActs.length) {
-      setStatus(r.notes || 'Nothing to log was found in that entry.', true);
+      setStatus(elsewhere ? (train ? 'That looks like food. Log food on the Today page.' : 'That looks like training. Log gym sets and sport in Train.') : (r.notes || 'Nothing to log was found in that entry.'), true);
     } else {
       await saveEntry(date, r);
       const bits = [];
@@ -742,7 +749,7 @@ async function submitLog(){
       for (const a of r.activities) enqueueActivity(a, date);
       const how = !needAI ? ' From the built-in tables, no AI used.' : nLocal ? ` ${nLocal} from the built-in tables, the rest read by AI.` : aiFoods ? ' Saved to your food list, so next time it’s instant.' : r.exercises.length ? ' New exercises are remembered, so next time they’re instant.' : '';
       const newPrs = r.exercises.length ? [...prsOn(date).values()].filter(x => r.exercises.some(e => exKey(e.name)===exKey(x.name))) : [];
-      setStatus((newPrs.length ? `New personal record: ${newPrs.map(x=>`${x.name}, ${x.text}`).join('; ')}! ` : '') + (bits.length ? 'Logged ' + bits.join(', ') + '.' + how + (r.notes ? ' ' + r.notes : '') : (r.notes||'')));
+      setStatus((newPrs.length ? `New personal record: ${newPrs.map(x=>`${x.name}, ${x.text}`).join('; ')}! ` : '') + (bits.length ? 'Logged ' + bits.join(', ') + '.' + how + (r.notes && !/Log (food|training) (on|in)/.test(r.notes) ? ' ' + r.notes : '') : (r.notes||'')) + elsewhere);
       if (date===localDate() && r.exercises.some(e => (e.sets||[]).length)) startRest();
       if ($('#logText')) $('#logText').value = ''; clearPhoto();
     }
@@ -1372,39 +1379,6 @@ function recentFoods(){
   return [...seen.values()].sort((a,b)=>b.n-a.n || a.order-b.order).slice(0,5).map(x=>x.f);
 }
 
-/* ---------- training load ---------- */
-function dayLoad(d){
-  if (!d) return 0; let l=0;
-  for (const a of d.sports||[]) l += (a.minutes||0) * (a.rpe || 6);
-  const sets = (d.exercises||[]).reduce((s,e)=>s+(e.sets||[]).length,0); if (sets) l += Math.min(120, sets*2.5+10) * 7;
-  for (const e of d.exercises||[]) if (!(e.sets||[]).length && e.duration_min) l += e.duration_min*5;
-  return l;
-}
-const dayBalls = d => (d?.sports||[]).reduce((s,a)=>s+((a.stats||{}).balls_bowled||a.balls_bowled||0),0);
-function sumRange(fn, end, days){ let s=0; for (let i=0;i<days;i++) s+=fn(S.days.get(addDays(end,-i))); return s; }
-function acwr(fn, end){ const acute=sumRange(fn,end,7), chronic=sumRange(fn,end,28)/4; return {acute, chronic, ratio: chronic>0 ? acute/chronic : null}; }
-function acwrStatus(r){
-  if (r===null) return {cls:'', label:'Not enough history', note:'Needs about 4 weeks of logging to compare this week with your usual load.'};
-  if (r<0.8) return {cls:'warn', label:'Lower than usual', note:'Load is well below your 4-week average. Fine for a rest week; a long run of this loses fitness.'};
-  if (r<=1.3) return {cls:'good', label:'In the sweet spot', note:'This week matches what your body is used to. Injury risk is lowest in this zone (0.8–1.3).'};
-  if (r<=1.5) return {cls:'warn', label:'Climbing fast', note:'This week is noticeably above your usual. Hold here for a week before adding more.'};
-  return {cls:'bad', label:'Spike: higher injury risk', note:'More than 1.5× your usual load. Spikes like this are linked to soft-tissue and back injuries, especially in fast bowlers. Ease off for a few days.'};
-}
-function loadPanel(){
-  const end = S.date; const L = acwr(dayLoad, end); const st = acwrStatus(L.ratio);
-  const weeks = Array.from({length:8},(_,i)=>{ const we=addDays(end,-7*(7-i)); return {date:addDays(we,-6), v:Math.round(sumRange(dayLoad, we, 7))}; });
-  const B = acwr(dayBalls, end); const bst = acwrStatus(B.ratio);
-  const hasBalls = sumRange(dayBalls, end, 56) > 0;
-  const head = `<div class="panel-head"><h2>Training load</h2><span class="muted small">effort × minutes, all sport and gym</span>${hideBtn('load','training load')}</div>`;
-  if (isHidden('load')) return `<section class="panel" aria-label="Training load">${head}</section>`;
-  return `<section class="panel" aria-label="Training load">${head}
-    <div class="row"><span class="pill ${st.cls}">${esc(st.label)}</span><span class="small num">This week ${n0(L.acute)} · 4-week average ${n0(L.chronic)}${L.ratio!==null?` · ratio ${n1(L.ratio)}`:''}</span></div>
-    <div class="small">${esc(st.note)}</div>
-    ${barChart({rows:weeks, color:'var(--ink-2)', unit:'load', label:'Week load', wide:true})}
-    ${hasBalls?`<h3>Bowling workload</h3><div class="row"><span class="pill ${bst.cls}">${esc(bst.label)}</span><span class="small num">${n0(B.acute)} balls this week (${n1(B.acute/6)} overs) · 4-week average ${n0(B.chronic)}${B.ratio!==null?` · ratio ${n1(B.ratio)}`:''}</span></div>
-      <div class="muted small">Fast bowlers are most at risk of back stress injuries when weekly balls jump sharply. Build overs gradually and keep the ratio under 1.3.</div>`:''}
-  </section>`;
-}
 function waterTarget(day, T){
   let min = (day.sports||[]).reduce((s,a)=>s+(a.minutes||0),0);
   const sets = (day.exercises||[]).reduce((s,e)=>s+(e.sets||[]).length,0); if (sets) min += sets*2.5+10;
@@ -1412,29 +1386,8 @@ function waterTarget(day, T){
 }
 
 
-/* ---------- next-session planner ---------- */
-function trainingDigest(end, days=7){
-  const lines=[];
-  for (let i=days-1;i>=0;i--){ const date=addDays(end,-i); const d=S.days.get(date); const bits=[];
-    if (d) {
-      const ex = d.exercises||[];
-      if (ex.length) bits.push(`gym (${[...new Set(ex.map(e=>e.muscle_group))].join(', ')}): ${ex.map(e=>`${e.name} ${(e.sets||[]).map(s=>s.weight>0?`${s.weight}x${s.reps}`:`${s.reps}`).join(',')}${e.duration_min?` ${e.duration_min} min`:''}`).join('; ')}`);
-      for (const a of d.sports||[]) bits.push(`${actTitle(a)}: ${actLine(a)}${a.minutes?`, ${n0(a.minutes)} min`:''}${a.rpe?`, effort ${a.rpe}/10`:''}`);
-      if (d.health&&d.health.sleep_min) bits.push(`slept ${fmtSleep(d.health.sleep_min)}`);
-      if (d.health&&d.health.steps) bits.push(`${n0(d.health.steps)} steps`);
-    }
-    const pl = (S.plans||[]).find(p=>p.date===date);
-    lines.push(`${date} (${fmtDate(date,{weekday:'short'})}): ${bits.join(' | ')||'rest / nothing logged'}${pl?` [had suggested: ${pl.focus}]`:''}`);
-  }
-  return lines.join('\n');
-}
-function lastLifts(){
-  const cutoff = addDays(localDate(), -42);
-  return [...buildSessions().values()].map(e=>({e, last:e.sessions[e.sessions.length-1]})).filter(x=>x.last.date>=cutoff)
-    .sort((a,b)=>b.last.date.localeCompare(a.last.date)).slice(0,30)
-    .map(x=>`${x.e.name} (${x.e.group}) last ${x.last.date}: ${x.last.sets.map(s=>s.weight>0?`${s.weight}x${s.reps}`:`${s.reps}`).join(', ')}${x.last.bodyweight?'':`, best est. 1RM ${n1(Math.max(...x.e.sessions.map(s=>s.best)))} kg`}`).join('\n');
-}
-/* An exercise's "standard": what this person did last time (their top working
+/* ---------- an exercise's standard ----------
+   An exercise's "standard": what this person did last time (their top working
    weight, its reps and how many sets), or what they last set in a plan, whichever
    is newer. New plans start from it. */
 function exStandard(name){
@@ -1457,145 +1410,6 @@ function saveStandard(name, sets, reps, kg){
   // Keep the 150 most recent.
   const keep = Object.entries(std).sort((a,b)=>b[1].date.localeCompare(a[1].date)).slice(0,150);
   saveProfile({...p, ex_std:Object.fromEntries(keep)});
-}
-const planKg = e => e.kg>0 ? e.kg : +((String(e.weight||'').match(/(\d+(?:\.\d+)?)\s*kg/i)||[])[1]||0);
-async function savePlan(plan){
-  plan.edited = Date.now();
-  S.plans = [plan, ...(S.plans||[]).filter(x=>x.id!==plan.id)].sort((a,b)=>b.date.localeCompare(a.date)); render();
-  if (S.db) await S.db.doc('plans/'+plan.id).set(plan);
-}
-function openPlanEx(i){
-  const plan = (S.plans||[]).find(p=>p.date>=localDate()); if (!plan) return;
-  const isNew = i < 0; const e = isNew ? {name:'', sets:3, reps:'10', weight:'', kg:0, rest:'90 s', note:''} : plan.exercises[i]; if (!e) return;
-  const d = $('#dlg');
-  const render1 = () => {
-    const st = e.name ? exStandard(e.name) : null;
-    return st ? `Last time: ${esc(st.sets_text || `${st.sets} × ${st.reps}${st.kg?` @ ${n1(st.kg)} kg`:''}`)}${st.from==='plan'?` · your standard ${st.sets||'?'} × ${esc(st.reps)}${st.kg?` @ ${n1(st.kg)} kg`:''}`:''}` : '';
-  };
-  d.innerHTML = `<form class="form" id="peForm" style="gap:12px"><h2 class="full">${isNew?'Add an exercise':'Edit exercise'}</h2>
-    <label class="field full">Exercise<input id="pe_name" value="${esc(e.name)}" autocomplete="off" placeholder="e.g. incline dumbbell press" required></label>
-    <div class="full exres" id="pe_sug" style="max-height:160px"></div>
-    <label class="field">Sets<input id="pe_sets" type="number" min="1" max="20" step="1" inputmode="numeric" value="${esc(e.sets||'')}"></label>
-    <label class="field">Reps<input id="pe_reps" value="${esc(e.reps||'')}" placeholder="8 or 8-10"></label>
-    <label class="field">Weight (kg)<input id="pe_kg" type="number" min="0" max="500" step="0.5" inputmode="decimal" value="${esc(planKg(e)||'')}" placeholder="0 = bodyweight"></label>
-    <label class="field">Rest<input id="pe_rest" value="${esc(e.rest||'')}" placeholder="90 s"></label>
-    <div class="full muted small" id="pe_last">${render1()}</div>
-    <label class="check full"><input type="checkbox" id="pe_std" checked> Make this my standard for ${e.name?esc(e.name):'this exercise'} in future plans</label>
-    <div class="full row">${isNew?'':'<button class="btn ghost sm" type="button" id="pe_del">Remove</button>'}<span class="spacer"></span><button class="btn ghost" type="button" id="pe_cancel">Cancel</button><button class="btn" type="submit">Save</button></div></form>`;
-  d.showModal();
-  const nameIn = $('#pe_name');
-  const fill = () => { const st = nameIn.value.trim() && exStandard(nameIn.value.trim()); $('#pe_last').innerHTML = (e.name=nameIn.value.trim(), render1());
-    if (st && isNew && !$('#pe_kg').value) { $('#pe_sets').value = st.sets||3; $('#pe_reps').value = st.reps||'10'; if (st.kg) $('#pe_kg').value = st.kg; } };
-  nameIn.addEventListener('input', () => { const q = nameIn.value; $('#pe_sug').innerHTML = q.trim().length<2 ? '' : Gym.search(q, 6).map(x=>`<button type="button" class="exrow" data-n="${esc(x.name)}"><span>${esc(x.name)}</span><span class="tag">${esc(x.group)}</span></button>`).join(''); });
-  nameIn.addEventListener('change', fill);
-  $('#pe_sug').addEventListener('click', ev => { const b = ev.target.closest('[data-n]'); if (!b) return; nameIn.value = b.dataset.n; $('#pe_sug').innerHTML=''; fill(); });
-  $('#pe_cancel').onclick = () => d.close();
-  if (!isNew) $('#pe_del').onclick = async () => { plan.exercises.splice(i,1); d.close(); await savePlan(plan); toast(`Removed ${e.name} from the plan`); };
-  $('#peForm').onsubmit = async ev => { ev.preventDefault();
-    const name = titleCase(nameIn.value).slice(0,60); if (!name) return;
-    const sets = Math.round(num($('#pe_sets').value,20))||null, reps = String($('#pe_reps').value||'').trim().slice(0,20), kg = Math.round(num($('#pe_kg').value,500)*100)/100;
-    const x = {...(isNew?{}:plan.exercises[i]), name, sets, reps, kg, weight: kg>0 ? `${n1(kg)} kg` : 'bodyweight', rest:String($('#pe_rest').value||'').slice(0,20), edited:true};
-    if (!isNew && x.name!==e.name) x.note = '';
-    if (isNew) plan.exercises.push(x); else plan.exercises[i] = x;
-    if ($('#pe_std').checked) saveStandard(name, sets, reps, kg);
-    d.close(); await savePlan(plan);
-  };
-}
-function stdLines(){
-  const names = new Set([...Object.keys(prof().ex_std||{}), ...[...buildSessions().keys()]]);
-  const out = []; for (const k of names) { const st = exStandard(k); if (!st) continue; const nm = buildSessions().get(k)?.name || titleCase(k);
-    if (st.date >= addDays(localDate(), -60)) out.push(`${nm}: ${st.sets||'?'} x ${st.reps}${st.kg?` @ ${n1(st.kg)} kg`:' bodyweight'} (${st.from==='plan'?'set by them':'last done'} ${st.date})`); }
-  return out.slice(0,40).join('\n');
-}
-// Keep the plan honest to the standard: a weight far from it (over 10% either way) goes back to it.
-function withStandard(e){
-  if (!e.name) return e; const st = exStandard(e.name); e.kg = planKg(e);
-  if (st && st.kg > 0 && (!(e.kg > 0) || Math.abs(e.kg - st.kg) / st.kg > 0.1)) { e.kg = st.kg; e.weight = `${n1(st.kg)} kg (your standard)`; e.sets = st.sets || e.sets; e.reps = st.reps || e.reps; }
-  return e;
-}
-function planTargetDate(){
-  const today = localDate(), d = S.days.get(today);
-  const trained = d && ((d.exercises||[]).length || (d.sports||[]).length);
-  return (trained || new Date().getHours() >= 21) ? addDays(today,1) : today;
-}
-async function runPlan(){
-  if (!S.sample) return;
-  const p = prof(); const forDate = S.planFor || planTargetDate(); const note = ($('#planNote')?.value||S.planNote||'').trim();
-  S.planNote = note; S.planBusy=true; S.planStatus='Planning your next session…'; render();
-  const rec = latestRecovery();
-  const prompt = `You are a strength and conditioning coach for an amateur athlete in India who does gym training and plays sport. Plan their session for ${forDate} (${fmtDate(forDate,{weekday:'long'})}).
-Athlete: ${p.sex}, ${who(localDate()).age} y, ${n1(who(localDate()).kg)} kg, goal ${(GOALS[p.goal]||{}).label}.
-How they train and play:
-${Object.values(p.sports||{}).map(s=>`${s.name}: ${(s.answers||[]).filter(a=>a.a).map(a=>`${a.q} ${a.a}`).join('; ')}`).join('\n')||'No sport profile set.'}
-What they actually did in the last 7 days (their real logs; where a day shows [had suggested: …] you suggested that, and if the log differs they chose something else, so plan from what they really did):
-${trainingDigest(localDate(), 7)}
-Latest recovery estimate: ${rec?`${rec.label}, ${rec.recovering?`recovering until ${new Date(rec.t).toISOString().slice(0,16)}`:'recovered'}`:'none'}.
-Recent lifts (use these to set weights and progress them):
-${lastLifts()||'No lifts logged yet.'}
-${stdLines()?`Their standards (what they did or set last time; start each of these exercises from it, and only add weight when every set of the standard was completed last time, by the smallest step: 2.5 kg, or 1 kg for dumbbells):\n${stdLines()}`:''}
-${note?`What they told you about their plans: "${note}"`:''}
-Decide the best session for that day: which muscle groups are recovered (about 48 h for a trained muscle group, 72 h after a very hard or high-volume session), balance across the week (push, pull, legs, core), their sport load (after fast bowling or a match, protect the lower back, hamstrings and shoulders and avoid heavy legs the next day; before a match or nets keep legs fresh), sleep, and their split and goal. A rest or mobility day is a valid answer when it is the right call.
-Reply with ONLY this JSON:
-{"focus":"Pull + core","type":"gym","muscles":["back","biceps","core"],"readiness":"good","why":"2-3 sentences tied to what they did on specific days",
-"warmup":"one line","exercises":[{"name":"Barbell Row","sets":4,"reps":"8","weight":"60 kg (you did 57.5x8 last time)","rest":"90 s","note":"short cue"}],
-"finisher":"optional conditioning or mobility, one line","duration_min":60,
-"if_short_on_time":"a 30-minute version in one line","avoid":["what not to do today and why, short"],"next":"one line on what should likely follow on the next day"}
-type is one of gym, sport-skill, conditioning, mobility, rest. readiness is good, moderate or low. Give 4-7 exercises for a gym day (fewer for others), with weights based on their recent lifts.`;
-  try {
-    const res = await S.sample.json(prompt, {task:'plan'});
-    const plan = {id:forDate, date:forDate, focus:String(res?.focus||'Session').slice(0,60), type:String(res?.type||'gym').slice(0,20),
-      muscles:(Array.isArray(res?.muscles)?res.muscles:[]).slice(0,8).map(x=>String(x).toLowerCase().slice(0,20)), readiness:['good','moderate','low'].includes(res?.readiness)?res.readiness:'moderate',
-      why:String(res?.why||'').slice(0,500), warmup:String(res?.warmup||'').slice(0,200),
-      exercises:(Array.isArray(res?.exercises)?res.exercises:[]).slice(0,10).map(e=>withStandard({name:String(e.name||'').slice(0,60), sets:Math.round(num(e.sets,20))||null, reps:String(e.reps??'').slice(0,20), weight:String(e.weight||'').slice(0,80), rest:String(e.rest||'').slice(0,20), note:String(e.note||'').slice(0,120)})).filter(e=>e.name),
-      finisher:String(res?.finisher||'').slice(0,200), duration:num(res?.duration_min,300)||null, short:String(res?.if_short_on_time||'').slice(0,300),
-      avoid:(Array.isArray(res?.avoid)?res.avoid:[]).slice(0,4).map(x=>String(x).slice(0,160)), next:String(res?.next||'').slice(0,200), note, created:Date.now()};
-    if (S.db) await S.db.doc('plans/'+plan.id).set(plan);
-    S.plans = [plan, ...(S.plans||[]).filter(x=>x.id!==plan.id)].sort((a,b)=>b.date.localeCompare(a.date));
-    S.planStatus=''; S.planFor=null;
-  } catch(e) { S.planStatus = AI_ERR[e?.code] || 'Couldn’t plan the session. Try again.'; }
-  finally { S.planBusy=false; render(); }
-}
-function planFollow(plan){
-  const d = S.days.get(plan.date); if (!d) return null;
-  const did = new Set((d.exercises||[]).map(e=>e.muscle_group)); const sports = (d.sports||[]).map(a=>actTitle(a));
-  if (!did.size && !sports.length) return null;
-  const hit = plan.muscles.filter(m=>did.has(m) || [...did].some(x=>x.includes(m)||m.includes(x)));
-  if (plan.type==='rest' || plan.type==='mobility') return {ok:false, text:`You trained ${[...did, ...sports].join(', ')} instead of resting. The next plan will account for it.`};
-  if (hit.length) return {ok:true, text:'Done as planned.'};
-  return {ok:false, text:`You did ${[...did, ...sports].join(', ')} instead. Plan the next session and it will adjust.`};
-}
-function planCard(compact){
-  const today = localDate();
-  const plan = (S.plans||[]).find(p=>p.date>=today) || null;
-  const last = (S.plans||[]).find(p=>p.date<=today);
-  const f = last ? planFollow(last) : null;
-  const forDate = S.planFor || planTargetDate();
-  const head = `<div class="panel-head"><h2>Next session</h2>${plan?`<span class="muted small">${esc(plan.date===today?'Today':fmtDate(plan.date,{weekday:'long'}))}</span>`:''}${compact?'':hideBtn('plan','next session')}</div>`;
-  if (!compact && isHidden('plan')) return `<section class="panel span2" aria-label="Next session">${head}</section>`;
-  const controls = `<div class="row"><input id="planNote" type="text" placeholder="Anything coming up? e.g. match on Sunday, nets tomorrow" value="${esc(S.planNote||'')}" style="flex:1 1 100%;min-width:0;border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:8px 10px">
-      <div class="seg" role="group" aria-label="Plan for"><button data-action="planFor" data-d="${today}" aria-pressed="${forDate===today}">Today</button><button data-action="planFor" data-d="${addDays(today,1)}" aria-pressed="${forDate!==today}">Tomorrow</button></div>
-      <button class="btn sm" data-action="plan" ${S.planBusy||S.aiState==='off'?'disabled':''}>${S.planBusy?'Planning…':plan?'Plan again':'Plan my next session'}</button></div>
-    ${S.planStatus?`<div class="status${/Couldn/.test(S.planStatus)?' err':''}">${esc(S.planStatus)}</div>`:''}`;
-  let body = '';
-  if (f && last && last !== plan) body += `<div class="banner" style="border-left-color:var(--${f.ok?'good':'warn'})">${esc(fmtDate(last.date,{weekday:'short'}))}: suggested ${esc(last.focus)}. ${esc(f.text)}</div>`;
-  if (plan) {
-    const pf = plan.date===today ? planFollow(plan) : null;
-    body += `<div class="plan-h"><div class="rev-head">${esc(plan.focus)}</div><span class="pill ${plan.readiness==='good'?'good':plan.readiness==='low'?'bad':'warn'}">readiness ${esc(plan.readiness)}</span>${plan.duration?`<span class="muted small">~${n0(plan.duration)} min</span>`:''}${pf?`<span class="pill ${pf.ok?'good':'warn'}">${pf.ok?'done':'changed'}</span>`:''}</div>
-      <div class="small">${esc(plan.why)}</div>`;
-    if (compact) body += plan.exercises.length ? `<div class="small muted">${esc(plan.exercises.map(e=>e.name).join(' · '))}</div><button class="linkbtn" data-action="goto" data-view="gym" style="align-self:flex-start;padding-left:0">See the full session in Train</button>` : '';
-    else {
-      if (plan.warmup) body += `<div class="small"><b>Warm-up:</b> ${esc(plan.warmup)}</div>`;
-      body += `<div class="tablewrap" tabindex="0"><table class="plantable"><thead><tr><th class="l">Exercise</th><th class="r">Sets × reps</th><th class="l">Weight</th><th><span class="sr">Edit</span></th></tr></thead><tbody>
-        ${plan.exercises.map((e,i)=>`<tr class="exrow1"><td class="l"><b>${esc(e.name)}</b>${e.edited?' <span class="tag">edited</span>':''}</td><td class="r">${e.sets?e.sets+' × ':''}${esc(e.reps)}</td><td class="l">${planKg(e)>0 ? `${n1(planKg(e))} kg` : /body/i.test(e.weight||'') ? 'bodyweight' : esc(e.weight)}</td><td class="r"><button class="editbtn" data-action="planEx" data-i="${i}" aria-label="Edit ${esc(e.name)}">✎</button></td></tr><tr class="howrow"><td colspan="4">${howtoFold(e.name)}</td></tr>`).join('')}</tbody></table></div>
-        <div class="row"><button class="btn ghost sm" data-action="planEx" data-i="-1">+ Add exercise</button><span class="muted small">Your edits become the starting point for future plans.</span></div>`;
-      if (plan.finisher) body += `<div class="small"><b>Finish with:</b> ${esc(plan.finisher)}</div>`;
-      if (plan.short) body += `<div class="small"><b>Short on time:</b> ${esc(plan.short)}</div>`;
-      if (plan.avoid.length) body += `<div><h3>Avoid today</h3><ul class="tips">${plan.avoid.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`;
-      if (plan.next) body += `<div class="muted small"><b>After this:</b> ${esc(plan.next)}</div>`;
-      body += `<div class="row">${plan.exercises.length?'<button class="btn ghost sm" data-action="planToLog">I did this, put it in the log box</button>':''}<span class="spacer"></span><button class="btn ghost sm danger" data-action="planRemove">Remove this workout</button></div>`;
-    }
-  } else body += `<div class="muted small">Looks at what you actually did over the last 7 days (gym, nets, matches, badminton), how recovered you are, your sleep and your recent weights, then plans the session: what to train, exercises, sets, reps and target weights. If you do something else instead, the next plan adjusts to it.</div>`;
-  return `<section class="panel${compact?'':' span2'}" aria-label="Next session">${head}${body}${compact?'':controls}${compact&&!plan?controls:''}</section>`;
 }
 
 function latestWeightDate(){ let d=''; for (const [k,v] of S.days) if (v.weight_kg && k>d) d=k; return d; }
@@ -1704,11 +1518,11 @@ function lineChart({pts, unit, color, wide}){
 
 /* ---------- views ---------- */
 function loggerHtml(kind){
-  const ph = kind==='gym' ? 'e.g. bench 60kg 3x8, lat pulldown 50x12 x10 x10 · badminton doubles 1 hr · cricket nets 90 min, bowled 6 overs, faced 40 balls' : 'e.g. 150g chicken breast, 200g cooked rice, 1 tbsp ghee · 500ml water · bench 60kg 3x8';
+  const ph = kind==='gym' ? 'e.g. bench 60kg 3x8, lat pulldown 50x12 x10 x10 · badminton doubles 1 hr · cricket nets 90 min, bowled 6 overs, faced 40 balls' : 'e.g. 150g chicken breast, 200g cooked rice, 1 tbsp ghee · 500ml water';
   if (S.aiState==='off') return `<div class="banner">AI isn’t set up for this app yet, so typed entries only log foods from the food table. Water, editing and everything else work. See SETUP.md to connect one.</div>`;
   return `<section class="panel logger span2" aria-label="Log an entry">
-    <div class="panel-head"><h2>${kind==='gym'?'Log training':'Log food &amp; training'}</h2><span class="muted small">${esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'long'}))}</span></div>
-    ${queueCard()}
+    <div class="panel-head"><h2>${kind==='gym'?'Log training':'Log food'}</h2><span class="muted small">${esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'long'}))}</span></div>
+    ${kind==='gym' ? queueCard() : ''}
     <textarea id="logText" placeholder="${esc(ph)}" ${S.busy?'disabled':''}></textarea>
     <div class="row">
       ${S.canPhoto && kind!=='gym' ? `<button class="btn ghost sm" data-action="pickPhoto" ${S.busy?'disabled':''}>Add photo</button>` : ''}
@@ -1720,7 +1534,7 @@ function loggerHtml(kind){
     </div>
     <div class="status${S.statusErr?' err':''}" id="logStatus" aria-live="polite">${esc(S.status)}</div>
     ${kind!=='gym'&&recentFoods().length?fold('d-quick', 'Quick add', `${recentFoods().length} foods you eat often`, `<div class="chips" aria-label="Frequent foods">${recentFoods().map(f=>`<button class="chip" style="border-style:solid" data-action="relog" data-id="${f.id}">${esc(f.name)}${f.quantity?' · '+esc(f.quantity):''}</button>`).join('')}</div>`, 'inline'):''}
-    ${kind==='gym'||!recentFoods().length?`<div class="chips" aria-label="Examples"><span class="muted small" style="align-self:center">Try:</span>${(kind==='gym'?EXAMPLES.slice(5):EXAMPLES.slice(0,6)).map(x=>`<button class="chip" data-action="example" data-text="${esc(x)}">${esc(x)}</button>`).join('')}</div>`:''}
+    ${kind==='gym'||!recentFoods().length?`<div class="chips" aria-label="Examples"><span class="muted small" style="align-self:center">Try:</span>${(kind==='gym'?EXAMPLES.slice(4):EXAMPLES.slice(0,4)).map(x=>`<button class="chip" data-action="example" data-text="${esc(x)}">${esc(x)}</button>`).join('')}</div>`:''}
   </section>`;
 }
 function healthPanel(H){
@@ -1885,7 +1699,7 @@ function viewToday(){
         </div>`; })()}
     </section>
     ${loggerHtml('today')}
-    <section class="panel folds" aria-label="What I ate and trained">
+    <section class="panel folds" aria-label="What I ate">
       ${fold('d-food', 'What I ate today', (day.foods||[]).length?`${(day.foods||[]).length} item${(day.foods||[]).length===1?'':'s'} · ${n0(t.kcal)} kcal`:'nothing yet', `
       ${byMeal.length ? byMeal.map(g=>`<div class="meal"><div class="meal-h"><span>${g.m}</span><span class="num">${n0(g.items.reduce((s,f)=>s+f.kcal,0))} kcal</span></div>
         ${g.items.map(f=>`<div class="item"><div><div class="nm">${esc(f.name)} ${f.confidence!=='high'?`<span class="tag est" title="Estimated portion">est.</span>`:''}${f.source==='photo'?' <span class="tag">photo</span>':''}${f.check?' <span class="tag est" title="Calories don’t match the protein, carbs and fat. Tap Edit to check.">check</span>':''}</div>
@@ -1894,8 +1708,6 @@ function viewToday(){
           <div class="acts"><button data-action="editFood" data-id="${f.id}" aria-label="Edit ${esc(f.name)}">Edit</button><button data-action="delFood" data-id="${f.id}" aria-label="Delete ${esc(f.name)}">✕</button></div></div>`).join('')}</div>`).join('')
         : `<div class="empty">Nothing logged yet. Type a meal above, like “2 eggs, 2 slices brown bread, 1 banana”.</div>`}
       ${(day.foods||[]).length?`<label class="check muted small" style="margin-top:12px"><input type="checkbox" data-action="dayComplete" ${day.incomplete?'':'checked'}> I logged everything I ate on this day (days you untick are left out when your real maintenance is measured)</label>`:''}`)}
-      ${fold('d-train', 'What I trained today', hasTraining?[...(day.exercises||[]).length?[`gym · ${(day.exercises||[]).length} exercise${(day.exercises||[]).length===1?'':'s'}`]:[], ...(day.sports||[]).map(a=>`${actTitle(a)}${a.minutes?` ${n0(a.minutes)} min`:''}`)].join(' · ')+(t.burned?` · ${n0(t.burned)} kcal`:''):'nothing yet',
-        hasTraining ? activityPanel(day) : `<div class="empty">No training logged. Type it in the box above, like “bench 60kg 3x8, squat 80x5 x5 x5” or “badminton doubles 1 hr”.</div>`)}
     </section>
     <section class="panel goals" aria-label="Today's goals">
       <div class="panel-head"><h2>Today’s goals</h2></div>
@@ -1969,7 +1781,12 @@ function viewGym(){
   const rows = exerciseRows();
   if (S.gymEx && !rows.find(r=>r.e.key===S.gymEx)) S.gymEx=null;
   const sel = rows.find(r=>r.e.key===S.gymEx);
+  const day = getDay(S.date), hasTraining = (day.sports||[]).length || (day.exercises||[]).length;
   return `<div class="grid">
+    ${loggerHtml('gym')}
+    <section class="panel span2" aria-label="Training on this day"><div class="panel-head"><h2>${S.date===localDate()?'Today’s training':'Training on '+esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'short'}))}</h2>${hasTraining?`<span class="muted small">${n0(dayTotals(day).burned)} kcal</span>`:''}</div>
+      ${activityPanel(day)}</section>
+    <h2 class="sect">Workout progress</h2>
     <div class="panel-head"><h2>${S.gymPeriod==='week'?'This week':'This month'}</h2>
       <div class="seg" role="group" aria-label="Period"><button data-action="gymPeriod" data-p="week" aria-pressed="${S.gymPeriod==='week'}">Week</button><button data-action="gymPeriod" data-p="month" aria-pressed="${S.gymPeriod==='month'}">Month</button></div></div>
     <div class="tiles">
@@ -1981,9 +1798,10 @@ function viewGym(){
     <div class="muted small">Changes compare ${S.gymPeriod==='week'?'this week so far':'this month so far'} with all of ${label}. Volume = weight × reps across every set.</div>
     ${growthDash(rows)}
     ${sel ? exerciseDetail(sel) : ''}
-    ${planCard(false)}
-    ${loadPanel()}
-    <section class="panel folds" aria-label="Exercise library">${fold('g-lib', 'Exercise library', libCount() ? `${n0(libCount())} exercises with how-to` : 'loading…', libraryHtml())}</section>
+    <section class="panel folds" aria-label="Exercise library and settings">
+      ${fold('g-lib', 'Exercise library', libCount() ? `${n0(libCount())} exercises with how-to` : 'loading…', libraryHtml())}
+      ${fold('g-settings', 'Workout settings', restOn()?`rest timer ${Number(prof().rest_default||90)} s`:'rest timer off', workoutFold())}
+    </section>
   </div>`;
 }
 /* ---------- exercise library (exercises.js + data/ex-*.json) ---------- */
@@ -2636,21 +2454,8 @@ function foodListHtml(){
 function viewProfile(){
   const p = prof(), T = targets();
   const t=dayTotals(getDay(localDate())), TT=dayTargets(getDay(localDate()));
-  const rec = recoveryItems(); const reps = S.reports||[]; const rv = (S.reviews||[])[0];
-  const plan = (S.plans||[]).find(x=>x.date>=localDate());
-  const coachHtml = `    <section class="panel"><div class="panel-head"><h3>What to train or play</h3>${plan?`<span class="muted small">${esc(plan.date===localDate()?'Today':fmtDate(plan.date,{weekday:'long'}))}</span>`:''}</div>
-      ${plan ? `<div class="plan-h"><b>${esc(plan.focus)}</b><span class="pill ${plan.readiness==='good'?'good':plan.readiness==='low'?'bad':'warn'}">readiness ${esc(plan.readiness)}</span></div><div class="small">${esc(plan.why)}</div>`
-        : '<div class="muted small">Plans your next gym session or sport day from what you did this week, your recovery and your recent weights.</div>'}
-      <div class="row"><button class="btn sm" data-action="goto" data-view="gym">${plan?'See the full session':'Plan my next session'}</button></div>
-    </section>
-    <section class="panel"><div class="panel-head"><h3>Recovery</h3><span class="muted small">${rec.length?`${rec.length} still recovering`:'fresh'}</span></div>
-      ${rec.length ? rec.map(x=>`<div class="act"><div class="nm">${esc(x.label)} <span class="muted small">${esc(fmtDate(x.date,{weekday:'short'}))}</span></div>${recoveryHtml(x.r)}</div>`).join('')
-        : '<div class="small">Nothing is still recovering from the last few days, so you’re clear for a hard session.</div>'}
-    </section>
-`;
+  const reps = S.reports||[]; const rv = (S.reviews||[])[0];
   return `<div class="grid">
-    <div class="panel-head"><h2>Coach</h2>${hideBtn('coach','coach')}</div>
-    ${isHidden('coach') ? '' : coachHtml}
     <h2 class="sect">My plan</h2>
     <section class="panel folds">
       ${fold('p-goals', 'Daily goals', `${n0(T.kcal)} kcal · ${n0(T.protein)} g protein`, goalsForm())}
@@ -2663,7 +2468,6 @@ function viewProfile(){
       ${fold('s-profile', 'My details', `${esc(p.sex)} · ${n1(who(localDate()).kg)} kg · ${esc((GOALS[p.goal]||{}).label||'')}`, profileForm())}
       ${fold('s-data', 'Download my data', 'Excel', dataFold())}
       ${fold('s-connect', 'Watch &amp; health apps', p.watch_workouts?'watch on':'', connectFold())}
-      ${fold('s-workout', 'Workout', restOn()?`rest timer ${Number(p.rest_default||90)} s`:'rest timer off', workoutFold())}
       ${fold('s-sources', 'Data sources', 'free &amp; open', sourcesHtml())}
       ${S.isAdmin ? fold('s-people', 'People &amp; approvals', (()=>{ const n=(S.members||[]).filter(x=>x.status==='pending').length; return n?`${n} waiting`:`${(S.members||[]).filter(x=>x.status==='approved').length} approved`; })(), peopleFold()) : ''}
       ${fold('s-sports', 'Sports &amp; food list', `${Object.keys(p.sports||{}).length} sport${Object.keys(p.sports||{}).length===1?'':'s'}`, `<h3>Sports you play</h3>${sportsProfileHtml()}<h3>Your food list</h3>${foodListHtml()}`)}
@@ -2953,16 +2757,7 @@ document.addEventListener('click', ev => {
       if (prof().report_adjust?.from===r.id) { const p={...prof()}; delete p.report_adjust; saveProfile(p); }
       render(); toast(`Deleted the ${fmtDate(r.report_date,{day:'numeric',month:'short'})} report`, () => { S.reports=[r,...S.reports]; if (S.db) S.db.doc('reports/'+r.id).set(r); render(); }); break; }
     case 'review': runReview(); break;
-    case 'plan': runPlan(); break;
-    case 'planFor': S.planFor=b.dataset.d; render(); break;
-    case 'planEx': openPlanEx(+b.dataset.i); break;
     case 'toggleHide': { const k=b.dataset.key; if (S.hidden.has(k)) S.hidden.delete(k); else S.hidden.add(k); try { localStorage.setItem('fl:hidden', JSON.stringify([...S.hidden])); } catch {} render(); break; }
-    case 'planRemove': { const pl=(S.plans||[]).find(x=>x.date>=localDate()); if (!pl) break;
-      S.plans = (S.plans||[]).filter(x=>x.id!==pl.id); render(); if (S.db) S.db.doc('plans/'+pl.id).delete().catch(()=>{});
-      toast('Removed the recommended workout', () => { S.plans = [pl, ...(S.plans||[]).filter(x=>x.id!==pl.id)].sort((a,b)=>b.date.localeCompare(a.date)); render(); if (S.db) S.db.doc('plans/'+pl.id).set(pl).catch(()=>{}); }, 12000); break; }
-    case 'planToLog': { const pl=(S.plans||[]).find(x=>x.date>=localDate()); if (S.view!=='today') { S.date=localDate(); setView('today'); } const ta=$('#logText'); if (!pl||!ta) break;
-      ta.value = pl.exercises.map(e=>{ const w=planKg(e); return `${e.name} ${e.sets||3}x${String(e.reps).replace(/[^\d-]/g,'').split('-').pop()||8}${w?' @'+w+'kg':''}`; }).join(', ');
-      ta.focus(); ta.scrollIntoView({block:'center'}); setStatus('Edit anything you did differently, then tap Log.'); break; }
     case 'relog': { let f=null; for (const [,d] of S.days) { f=(d.foods||[]).find(y=>y.id===b.dataset.id); if (f) break; } if(!f) break;
       const copy={...structuredClone(f), id:uid(), time:nowTime(), meal:guessMeal()}; const date=S.date;
       writeDay(date, d=>d.foods.push(copy)); toast(`Logged ${f.name}`, () => writeDay(date, d => { d.foods=d.foods.filter(y=>y.id!==copy.id); })); break; }
@@ -3025,7 +2820,6 @@ document.addEventListener('toggle', ev => { const k = ev.target.dataset && ev.ta
 document.addEventListener('input', ev => bindInput(ev.target));
 document.addEventListener('change', ev => bindInput(ev.target));
 function bindInput(el){
-  if (el.id==='planNote') { S.planNote = el.value; return; }
   if (el.id==='exq') { S.exq = el.value; const r=$('#exres'); if (r) r.innerHTML = libResults(el.value); return; }
   const path = el.dataset && el.dataset.bind; if (!path) return;
   const v = el.type==='checkbox' ? el.checked : el.value;
@@ -3536,7 +3330,6 @@ async function startFor(user){
   db.collection('reports').orderBy('report_date','desc').limit(50).onSnapshot(snap => { S.reports = snap.docs.map(d=>({...d.data()})); render(); });
   db.collection('foodlib').onSnapshot(snap => { if (S.indbBuiltIn) return; const rows=[]; for (const d of snap.docs) { try { rows.push(...JSON.parse(d.data().rows||'[]')); } catch {} } S.libFoods = rows.map(r=>rowToFood(r,'indb')); S.myFoodsVer=(S.myFoodsVer||0)+1; });
   db.collection('foods').limit(1000).onSnapshot(snap => { const m={}; for (const d of snap.docs) m[d.id]={...d.data()}; S.myFoods=m; S.myFoodsVer=(S.myFoodsVer||0)+1; });
-  db.collection('plans').orderBy('date','desc').limit(14).onSnapshot(snap => { S.plans = snap.docs.map(d=>({...d.data()})); render(); });
   db.collection('reviews').orderBy('created','desc').limit(10).onSnapshot(snap => { S.reviews = snap.docs.map(d=>({...d.data()})); render(); });
   db.collection('days').orderBy('date','desc').limit(1000).onSnapshot(snap => {
     const m = new Map(); for (const d of snap.docs) m.set(d.id, d.data());
