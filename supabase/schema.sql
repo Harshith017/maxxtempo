@@ -330,3 +330,39 @@ drop policy if exists "own progress photos remove" on storage.objects;
 create policy "own progress photos read" on storage.objects for select to authenticated using (bucket_id = 'progress' and (storage.foldername(name))[1] = (select auth.uid())::text and (select private.is_approved()));
 create policy "own progress photos add" on storage.objects for insert to authenticated with check (bucket_id = 'progress' and (storage.foldername(name))[1] = (select auth.uid())::text and (select private.is_approved()));
 create policy "own progress photos remove" on storage.objects for delete to authenticated using (bucket_id = 'progress' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+-- 14. Workout feed. Finished workouts are shared with approved members, who
+--     can like them (no comments, by design). Each person posts and deletes
+--     only their own; anyone can switch sharing off in Trends.
+create table if not exists public.feed_posts (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null default auth.uid() references auth.users on delete cascade,
+  name       text check (char_length(name) <= 40),
+  date       date not null,
+  workout    jsonb not null check (pg_column_size(workout) < 6000),
+  created_at timestamptz not null default now()
+);
+create index if not exists feed_posts_created on public.feed_posts (created_at desc);
+create index if not exists feed_posts_user    on public.feed_posts (user_id);
+create table if not exists public.feed_likes (
+  post_id    uuid not null references public.feed_posts on delete cascade,
+  user_id    uuid not null default auth.uid() references auth.users on delete cascade,
+  name       text check (char_length(name) <= 40),
+  created_at timestamptz not null default now(),
+  primary key (post_id, user_id)
+);
+create index if not exists feed_likes_user on public.feed_likes (user_id);
+alter table public.feed_posts enable row level security;
+alter table public.feed_likes enable row level security;
+drop policy if exists "members read the feed" on public.feed_posts;
+drop policy if exists "post own workouts"     on public.feed_posts;
+drop policy if exists "delete own posts"      on public.feed_posts;
+drop policy if exists "members read likes"    on public.feed_likes;
+drop policy if exists "like as yourself"      on public.feed_likes;
+drop policy if exists "unlike own"            on public.feed_likes;
+create policy "members read the feed" on public.feed_posts for select to authenticated using ((select private.is_approved()));
+create policy "post own workouts"     on public.feed_posts for insert to authenticated with check ((select auth.uid()) = user_id and (select private.is_approved()));
+create policy "delete own posts"      on public.feed_posts for delete to authenticated using ((select auth.uid()) = user_id);
+create policy "members read likes"    on public.feed_likes for select to authenticated using ((select private.is_approved()));
+create policy "like as yourself"      on public.feed_likes for insert to authenticated with check ((select auth.uid()) = user_id and (select private.is_approved()));
+create policy "unlike own"            on public.feed_likes for delete to authenticated using ((select auth.uid()) = user_id);
