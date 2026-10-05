@@ -218,7 +218,7 @@ create policy "delete own board row"  on public.leaderboard for delete to authen
 -- Only the kinds of records the app writes.
 alter table public.docs drop constraint if exists docs_collection_known;
 alter table public.docs add constraint docs_collection_known
-  check (collection in ('days','profile','foods','reports','plans','reviews','foodlib','health'));
+  check (collection in ('days','profile','foods','reports','plans','reviews','foodlib','health','routines','measurements'));
 -- Leaderboard numbers must be sensible (weeks start on Monday).
 alter table public.leaderboard drop constraint if exists leaderboard_sane;
 alter table public.leaderboard add constraint leaderboard_sane check (
