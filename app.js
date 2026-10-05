@@ -3055,7 +3055,6 @@ document.addEventListener('click', ev => {
   const a = b.dataset.action, day = getDay(S.date);
   if (/^(wk|routine)/.test(a)) { wkAction(a, b); return; }
   if (a==='musclePeriod') { S.musclePeriod = b.dataset.p; render(); return; }
-  if (a==='feedLike') { feedLike(b.dataset.id); return; }
   if (a==='feedDel') { feedDel(b.dataset.id); return; }
   if (a==='feedMore') { S.feedAll = true; render(); return; }
   if (a==='photoCompare') { photoCompare(); return; }
@@ -3638,8 +3637,8 @@ function boardHtml(){
   </section>`;
 }
 
-/* ---------- workout feed (tables "feed_posts" and "feed_likes" in schema.sql) ---------- */
-// Finished workouts are shared with approved members, who can like them. No comments, by design.
+/* ---------- workout feed (table "feed_posts" in schema.sql) ---------- */
+// Finished workouts are shown to approved members. It’s read-only: nothing to react to or reply to.
 const FEED_DAYS = 30, FEED_SHOW = 8;
 const myName = () => (prof().name||'').trim().slice(0,40) || (S.user?.email||'').split('@')[0] || 'Member';
 function feedWorkout(sm, out, prs){
@@ -3658,24 +3657,15 @@ async function postWorkout(sm, out, date, prs){
 async function loadFeed(){
   if (!SB || !S.user) return;
   const since = new Date(Date.now() - FEED_DAYS*864e5).toISOString();
-  let data, likes = [];
+  let data;
   try {
     const r = await SB.from('feed_posts').select('id,user_id,name,date,workout,created_at').gte('created_at', since).order('created_at', {ascending:false}).limit(60);
     if (r.error) return; data = r.data||[];
-    const ids = data.map(p=>p.id);
-    if (ids.length) { const l = await SB.from('feed_likes').select('post_id,user_id,name').in('post_id', ids); if (!l.error) likes = l.data||[]; }
   } catch (e) { console.warn('feed', e?.message); return; }
-  S.feed = data; S.feedLikes = likes; S.feedLoaded = true; if (S.view==='trends') render();
-}
-async function feedLike(id){
-  const me = S.user?.id; if (!SB || !me) return;
-  const mine = (S.feedLikes||[]).some(l=>l.post_id===id && l.user_id===me), before = S.feedLikes||[];
-  S.feedLikes = mine ? before.filter(l=>!(l.post_id===id && l.user_id===me)) : [...before, {post_id:id, user_id:me, name:myName()}]; render();
-  let error; try { ({ error } = mine ? await SB.from('feed_likes').delete().match({post_id:id, user_id:me}) : await SB.from('feed_likes').insert({post_id:id, name:myName()})); } catch (e) { error = e; }
-  if (error) { S.feedLikes = before; render(); toast('Couldn’t save that like. Try again.'); }
+  S.feed = data; S.feedLoaded = true; if (S.view==='trends') render();
 }
 async function feedDel(id){
-  const p = (S.feed||[]).find(x=>x.id===id); if (!p || !SB || !confirm('Remove this workout from the feed? It stays in your own log.')) return;
+  const p = (S.feed||[]).find(x=>x.id===id); if (!p || !SB || !confirm('Take this workout off the feed? It stays in your own log.')) return;
   let error; try { ({ error } = await SB.from('feed_posts').delete().eq('id', id)); } catch (e) { error = e; }
   if (error) { toast('Couldn’t remove it. Try again.'); return; }
   S.feed = S.feed.filter(x=>x.id!==id); render();
@@ -3687,22 +3677,18 @@ function ago(iso){
 }
 function feedHtml(){
   const me = S.user?.id, off = prof().share_workouts === false, posts = S.feed||[], shown = S.feedAll ? posts : posts.slice(0, FEED_SHOW);
-  const likesOf = id => (S.feedLikes||[]).filter(l=>l.post_id===id);
-  const card = p => { const w = p.workout||{}, ls = likesOf(p.id), liked = ls.some(l=>l.user_id===me), others = ls.filter(l=>l.user_id!==me).map(l=>l.name||'Member');
-    const who = liked ? ['You', ...others] : others;
+  const card = p => { const w = p.workout||{};
     const hrs = m => m<60 ? `${m} min` : `${Math.floor(m/60)}h ${pad(m%60)}`;
     return `<article class="post${p.user_id===me?' me':''}"><div class="post-head"><b>${esc(p.name||'Member')}${p.user_id===me?' <span class="muted">(you)</span>':''}</b><span class="muted small">${esc(ago(p.created_at))}</span></div>
       <div class="post-title">${esc(w.title||'Workout')}</div>
       <div class="muted small">${esc(hrs(Number(w.minutes)||0))} · ${n0(w.sets||0)} ${w.sets===1?'set':'sets'} · ${n0(w.volume||0)} kg volume</div>
       <ul class="post-ex">${(w.exercises||[]).map(e=>`<li><span>${esc(e.sets)} × ${esc(e.name)}</span><span class="muted">${esc(e.best||'')}</span></li>`).join('')}${w.more?`<li class="muted">+ ${esc(w.more)} more</li>`:''}</ul>
       ${(w.prs||[]).length?`<div class="post-pr">🏆 ${(w.prs||[]).map(esc).join(' · ')}</div>`:''}
-      <div class="post-foot"><button class="likebtn" data-action="feedLike" data-id="${esc(p.id)}" aria-pressed="${liked}" aria-label="${liked?'Unlike':'Like'} ${esc(p.name||'this')}’s workout">${liked?'♥':'♡'} <span>${ls.length||''}</span></button>
-        <span class="muted small">${who.length?`Liked by ${esc(who.slice(0,3).join(', '))}${who.length>3?` and ${who.length-3} more`:''}`:''}</span><span class="spacer"></span>
-        ${p.user_id===me?`<button class="linkbtn" data-action="feedDel" data-id="${esc(p.id)}">Remove</button>`:''}</div></article>`; };
+      ${p.user_id===me?`<div class="post-foot"><span class="spacer"></span><button class="linkbtn" data-action="feedDel" data-id="${esc(p.id)}">Take off feed</button></div>`:''}</article>`; };
   return `<section class="panel feed" aria-label="Workout feed"><div class="panel-head"><h2>Workout feed</h2>${hideBtn('feed','workout feed')}</div>
-    ${isHidden('feed') ? '' : `${posts.length ? shown.map(card).join('') : `<div class="empty">${S.feedLoaded?'No workouts shared in the last 30 days. Finish a workout in Train and it shows up here.':'Loading…'}</div>`}
+    ${isHidden('feed') ? '' : `${posts.length ? shown.map(card).join('') : `<div class="empty">${S.feedLoaded?'No workouts in the last 30 days. Finish a workout in Train and it shows up here.':'Loading…'}</div>`}
     ${posts.length > shown.length ? `<div class="row"><button class="btn ghost sm" data-action="feedMore">Show ${posts.length-shown.length} more</button></div>` : ''}
-    <label class="check small"><input type="checkbox" data-action="feedToggle" ${off?'':'checked'}> Share my finished workouts here (name, exercises, best sets and PRs; members can like them)</label>`}
+    <label class="check small"><input type="checkbox" data-action="feedToggle" ${off?'':'checked'}> Show my finished workouts here (name, exercises, best sets and PRs)</label>`}
   </section>`;
 }
 
