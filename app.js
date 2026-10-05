@@ -635,6 +635,12 @@ function localParse(text, date){
   const sports = [];
   // Restaurant meals ("CB peri peri chicken burrito, extra paneer"): the pieces after it belong to it.
   let chunks = text.split(/\s*(?:,|;|\n)\s*/).map(x=>x.trim()).filter(Boolean);
+  if (typeof WeFit !== 'undefined') {
+    // Once one dish is from WeFit, other dishes in the same entry are tried as theirs too.
+    const any = chunks.some(c => WeFit.isWeFit(c));
+    chunks = chunks.filter(c => { const r = WeFit.parseAll(c) || (any && !WeFit.isWeFit(c) ? WeFit.parseAll('wefit ' + c) : null);
+      if (!r) return true; for (const x of r) foods.push(wefitFood(x.meal, x.qty, meal)); return false; });
+  }
   if (typeof Restaurants !== 'undefined') {
     // Once one dish is from California Burrito, other dishes of theirs in the same entry are too.
     const cbAll = chunks.some(c => Restaurants.isCB(c)), DISH = /\b(bowl|burrito|salad|tacos?|quesadilla|nachos|snachos|tostada|popcorn (chicken|mushroom|potato))\b/i;
@@ -2020,7 +2026,7 @@ function sourcesHtml(){
     <li><b>Foods:</b> MaxxTempo’s table (IFCT 2017 and USDA averages); Indian recipes from the <a href="https://www.anuvaad.org.in/indian-nutrient-databank/" target="_blank" rel="noopener">Indian Nutrient Databank (INDB)</a>, Vijayakumar et al. 2024, CC BY 4.0; <a href="https://fdc.nal.usda.gov" target="_blank" rel="noopener">USDA FoodData Central</a> SR Legacy, public domain.</li>
     <li><b>Sports and activities:</b> METs from the <a href="https://pacompendium.com" target="_blank" rel="noopener">2024 Adult Compendium of Physical Activities</a> (Herrmann, Willis, Ainsworth et al., <i>J Sport Health Sci</i> 2024), free to use.</li>
     <li><b>Packaged foods:</b> barcode lookups from <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a>, © Open Food Facts contributors, <a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener">ODbL</a>. Scanning uses <a href="https://github.com/zxing-js/browser" target="_blank" rel="noopener">ZXing</a> (MIT / Apache-2.0). Packs that aren’t there are read from a label photo on your phone with <a href="https://github.com/naptha/tesseract.js" target="_blank" rel="noopener">Tesseract.js</a> (Apache-2.0) and shared with your group.</li>
-    <li><b>Restaurants:</b> California Burrito meals use the values from <a href="https://www.californiaburrito.in/nutrition" target="_blank" rel="noopener">their nutrition calculator</a>, part by part.</li>
+    <li><b>Restaurants:</b> California Burrito meals use the values from <a href="https://www.californiaburrito.in/nutrition" target="_blank" rel="noopener">their nutrition calculator</a>, part by part; WeFit meals use <a href="https://wefitmeals.in" target="_blank" rel="noopener">WeFit’s own nutrition data</a>.</li>
     <li><b>Exercises:</b> <a href="https://github.com/yuhonas/free-exercise-db" target="_blank" rel="noopener">free-exercise-db</a> (public domain); <a href="https://wger.de" target="_blank" rel="noopener">wger</a> (CC-BY-SA, authors listed on each exercise); <a href="https://oss.exercisedb.dev" target="_blank" rel="noopener">ExerciseDB</a> free version (non-commercial, animations from ExerciseDB).</li>
   </ul><div class="muted small">All free, with no accounts or keys. Food and exercise data is stored in the app, so it keeps working even if a source goes offline; only barcode lookups and exercise pictures need the internet.</div>`;
 }
@@ -2138,6 +2144,38 @@ function restaurantFood(r, meal){
     kcal:k(r.kcal), protein:k(r.protein), carbs:k(r.carbs), fat:k(r.fat), fiber:k(r.fiber||0), sugar:0, added_sugar:0, alcohol:0, micros, confidence:'high', source:'restaurant',
     parts:r.parts.map(x => x.label).slice(0,20), restaurant:'California Burrito', no_fat_split:true};
 }
+/* ---------- WeFit meals (wefit.js): whole meals, from WeFit's own nutrition data ---------- */
+function wefitFood(m, qty, meal){
+  const q = qty || 1, k = v => Math.round(v * q * 10) / 10;
+  const micros = {}; for (const x of MICROS) micros[x.key] = 0;
+  const part = q===0.5 ? 'Half ' : q===0.25 ? 'Quarter ' : '';
+  return {id:uid(), name:(part + 'WeFit ' + m.name).slice(0,110), quantity:q===0.5?'half meal':q===0.25?'quarter meal':`${q} meal${q>1?'s':''}`, grams:0, meal:meal||guessMeal(), time:nowTime(),
+    kcal:k(m.kcal), protein:k(m.protein), carbs:k(m.carbs), fat:k(m.fat), fiber:k(m.fiber), sugar:0, added_sugar:0, alcohol:0, micros, confidence:'high', source:'restaurant',
+    parts:m.parts.slice(0,20), restaurant:'WeFit', no_fat_split:true};
+}
+function openWeFit(pick){
+  const d = $('#dlg'), W = WeFit; let m = pick || W.MEALS[0], cat = m.cat;
+  const draw = () => {
+    d.innerHTML = `<form class="form" id="wfform" style="gap:10px"><h2 class="full">WeFit</h2>
+      <label class="field full">Menu<select id="wf_cat">${W.CATEGORIES.map(c=>`<option ${c===cat?'selected':''}>${esc(c)}</option>`).join('')}</select></label>
+      <label class="field full">Meal<select id="wf_meal">${W.MEALS.filter(x=>x.cat===cat).map(x=>`<option value="${esc(x.name)}" ${x===m?'selected':''}>${esc(x.name)} · ${n0(x.kcal)} kcal</option>`).join('')}</select></label>
+      <label class="field">Amount<select id="wf_qty">${[[0.5,'Half'],[1,'1 meal'],[1.5,'1½ meals'],[2,'2 meals']].map(([v,l])=>`<option value="${v}" ${v===1?'selected':''}>${l}</option>`).join('')}</select></label>
+      <label class="field">Meal<select id="wf_when">${MEALS.map(x=>`<option ${x===guessMeal()?'selected':''}>${x}</option>`).join('')}</select></label>
+      <div class="full" id="wf_prev"></div>
+      <details class="full how"><summary>What’s in it</summary><ul>${m.parts.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></details>
+      <div class="full muted small">From WeFit’s own nutrition data. Meat and grains are weighed as they go in.</div>
+      <div class="full row"><span class="spacer"></span><button class="btn ghost" type="button" id="wf_cancel">Cancel</button><button class="btn" type="submit">Log it</button></div></form>`;
+    const upd = () => { const q = Number($('#wf_qty').value)||1;
+      $('#wf_prev').innerHTML = `<b>${n0(m.kcal*q)} kcal</b> · protein ${n1(m.protein*q)} g · carbs ${n1(m.carbs*q)} g · fat ${n1(m.fat*q)} g · fibre ${n1(m.fiber*q)} g`; };
+    $('#wf_cat').onchange = ev => { cat = ev.target.value; m = W.MEALS.find(x=>x.cat===cat); draw(); };
+    $('#wf_meal').onchange = ev => { m = W.MEALS.find(x=>x.name===ev.target.value) || m; draw(); };
+    $('#wf_qty').onchange = upd; upd();
+    $('#wf_cancel').onclick = () => d.close();
+    $('#wfform').onsubmit = async ev => { ev.preventDefault();
+      const f = wefitFood(m, Number($('#wf_qty').value)||1, $('#wf_when').value); d.close(); await saveEntry(S.date, {foods:[f]}); setStatus(`Logged ${f.name} · ${n0(f.kcal)} kcal. No AI used.`); };
+  };
+  draw(); if (!d.open) d.showModal();
+}
 function openCB(){
   const d = $('#dlg'), R = Restaurants; let meal = 'ricebowl', size = 'regular', picks = null;
   const opt = (rows, sel, none) => (none?`<option value="">${none}</option>`:'') + rows.map(r => `<option value="${esc(r[0])}" ${r[0]===sel?'selected':''}>${esc(R.titleCase(r[0]))} · ${n0(r[1])} kcal</option>`).join('');
@@ -2194,17 +2232,19 @@ function openFoodSearch(){
   d.innerHTML = `<div class="fsearch"><h2>Find a food</h2>
     <label class="field full">Search<input id="fq" type="search" placeholder="e.g. almonds, paneer tikka, oats" autocomplete="off"></label>
     <div id="fres" class="exres"><div class="muted small">${n0(FOODS.length + (S.libFoods||[]).length)} Indian and everyday foods, plus about 7,200 from USDA. No AI used.</div></div>
-    <div class="row"><button class="btn ghost sm" id="fscan">Scan a barcode</button><button class="btn ghost sm" id="flabel">From a label</button><button class="btn ghost sm" id="fcb">California Burrito</button><span class="spacer"></span><button class="btn ghost" id="fclose">Close</button></div></div>`;
-  d.showModal(); $('#fclose').onclick = () => d.close(); $('#fscan').onclick = () => openScanner(); $('#fcb').onclick = () => openCB(); $('#flabel').onclick = () => openLabel('', ($('#fq')?.value||'').trim(), 'A packed food without a barcode, or one you’d rather add by hand?');
+    <div class="row"><button class="btn ghost sm" id="fscan">Scan a barcode</button><button class="btn ghost sm" id="flabel">From a label</button><button class="btn ghost sm" id="fcb">California Burrito</button><button class="btn ghost sm" id="fwf">WeFit</button><span class="spacer"></span><button class="btn ghost" id="fclose">Close</button></div></div>`;
+  d.showModal(); $('#fclose').onclick = () => d.close(); $('#fscan').onclick = () => openScanner(); $('#fcb').onclick = () => openCB(); $('#fwf').onclick = () => openWeFit(); $('#flabel').onclick = () => openLabel('', ($('#fq')?.value||'').trim(), 'A packed food without a barcode, or one you’d rather add by hand?');
   let t = null, list = [];
   $('#fq').addEventListener('input', ev => { clearTimeout(t); t = setTimeout(async () => {
     const q = ev.target.value; if (!q.trim()) { $('#fres').innerHTML=''; return; }
-    list = await searchFoods(q);
+    // WeFit meals: all of them when the search names WeFit, otherwise a few at the end.
+    const wf = typeof WeFit==='undefined' ? [] : WeFit.search(q).map(m => ({wefit:m, name:'WeFit '+m.name}));
+    list = wf.length && WeFit.isWeFit(q) ? wf : [...await searchFoods(q), ...wf.slice(0,4)];
     if ($('#fq')?.value !== q) return;
-    $('#fres').innerHTML = list.length ? list.map((f,i)=>`<button class="exrow" data-i="${i}"><span>${esc(f.name)}<span class="muted small"> · ${n0(f.per.kcal)} kcal/100 g</span></span><span class="tag">${SRC_LABEL[f.src]||''}</span></button>`).join('')
+    $('#fres').innerHTML = list.length ? list.map((f,i)=>`<button class="exrow" data-i="${i}"><span>${esc(f.name)}<span class="muted small"> · ${f.wefit?`${n0(f.wefit.kcal)} kcal per meal`:`${n0(f.per.kcal)} kcal/100 g`}</span></span><span class="tag">${f.wefit?'WeFit':SRC_LABEL[f.src]||''}</span></button>`).join('')
       : `<div class="empty">Nothing found for “${esc(q)}”. Type it in the log box instead and AI will read it.</div>`;
   }, 180); });
-  $('#fres').addEventListener('click', ev => { const b = ev.target.closest('[data-i]'); if (b) openPortion(list[+b.dataset.i]); });
+  $('#fres').addEventListener('click', ev => { const b = ev.target.closest('[data-i]'); if (!b) return; const f = list[+b.dataset.i]; if (f.wefit) openWeFit(f.wefit); else openPortion(f); });
   setTimeout(() => $('#fq')?.focus(), 50);
 }
 function foodFromPer(f, grams, label){
