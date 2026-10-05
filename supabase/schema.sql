@@ -318,3 +318,15 @@ create policy "members add shared foods"  on public.shared_foods for insert to a
 create policy "fix own shared foods"      on public.shared_foods for update to authenticated using ((select private.is_approved()) and (added_by = (select auth.uid()) or (select private.is_admin()))) with check ((select private.is_approved()));
 create policy "remove own shared foods"   on public.shared_foods for delete to authenticated using (added_by = (select auth.uid()) or (select private.is_admin()));
 create index if not exists shared_foods_added_by on public.shared_foods (added_by);
+
+-- 13. Progress photos: a private storage bucket. Each person's photos live in a
+-- folder named after their user id; only they can see, add or delete them.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('progress', 'progress', false, 2097152, array['image/jpeg'])
+on conflict (id) do update set public = false, file_size_limit = 2097152, allowed_mime_types = array['image/jpeg'];
+drop policy if exists "own progress photos read"   on storage.objects;
+drop policy if exists "own progress photos add"    on storage.objects;
+drop policy if exists "own progress photos remove" on storage.objects;
+create policy "own progress photos read" on storage.objects for select to authenticated using (bucket_id = 'progress' and (storage.foldername(name))[1] = (select auth.uid())::text and (select private.is_approved()));
+create policy "own progress photos add" on storage.objects for insert to authenticated with check (bucket_id = 'progress' and (storage.foldername(name))[1] = (select auth.uid())::text and (select private.is_approved()));
+create policy "own progress photos remove" on storage.objects for delete to authenticated using (bucket_id = 'progress' and (storage.foldername(name))[1] = (select auth.uid())::text);

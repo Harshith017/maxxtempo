@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="MaxxTempo">
 <meta name="theme-color" content="#07060B">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://raw.githubusercontent.com https://wger.de https://static.exercisedb.dev https://images.openfoodfacts.org; connect-src 'self' https://idmvlecpdgtiyjeikphi.supabase.co wss://idmvlecpdgtiyjeikphi.supabase.co https://api.pwnedpasswords.com https://world.openfoodfacts.org https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com; worker-src 'self' blob:; manifest-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://idmvlecpdgtiyjeikphi.supabase.co https://raw.githubusercontent.com https://wger.de https://static.exercisedb.dev https://images.openfoodfacts.org; connect-src 'self' https://idmvlecpdgtiyjeikphi.supabase.co wss://idmvlecpdgtiyjeikphi.supabase.co https://api.pwnedpasswords.com https://world.openfoodfacts.org https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com; worker-src 'self' blob:; manifest-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <script src="boot.js"></script>
 <title>MaxxTempo</title>
@@ -246,6 +246,15 @@ details.micros>summary .muted{white-space:nowrap;margin-left:auto}
 .howfold summary{cursor:pointer;list-style:none;font-size:13px;font-weight:600;color:var(--accent-text);padding:4px 0;min-height:40px;display:inline-flex;align-items:center;gap:6px}
 .howfold summary::-webkit-details-marker{display:none}
 .hidebtn{margin-left:auto;font-size:13px}
+.musclewrap{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:14px;align-items:center}@media(max-width:420px){.musclewrap{grid-template-columns:1fr}}
+.bodymap{width:100%;max-width:240px;margin:0 auto;display:block}.bodymap ellipse,.bodymap rect,.bodymap path{stroke:var(--line);stroke-width:1}
+.musclebars{display:flex;flex-direction:column;gap:6px}.mbar{display:grid;grid-template-columns:76px 1fr 34px;gap:8px;align-items:center;font-size:13px}.mbar b{text-align:right;font-variant-numeric:tabular-nums}
+.mtrack{height:10px;border-radius:6px;background:var(--surface-2);overflow:hidden}.mtrack i{display:block;height:100%;background:var(--accent);border-radius:6px}
+.mlist{display:flex;flex-direction:column;gap:2px;margin-top:8px}.mrow2{display:grid;grid-template-columns:90px 80px 1fr 90px;gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+@media(max-width:420px){.mrow2{grid-template-columns:76px 70px 1fr}.mrow2 svg{display:none}}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}.ph{margin:0;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--surface-2)}
+.ph img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block}.ph figcaption{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:2px 6px;color:var(--ink-2)}
+.pcompare{display:grid;grid-template-columns:1fr 1fr;gap:6px}.pcompare img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:10px;background:var(--surface-2)}
 .wkstart .routines{display:grid;gap:10px}.routine{display:flex;justify-content:space-between;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;flex-wrap:wrap}.routine>div:first-child{min-width:0;flex:1 1 180px}
 .wklive{gap:14px}.wkhead{display:flex;flex-direction:column;gap:8px;position:sticky;top:0;z-index:3;background:var(--surface);padding-bottom:8px;border-bottom:1px solid var(--line)}
 .wkname{font-family:inherit;font-weight:700;font-size:20px;line-height:1.2;border:0;background:transparent;color:var(--ink);padding:4px 0;width:100%}.wkname:focus{outline:2px solid var(--accent);border-radius:6px}
