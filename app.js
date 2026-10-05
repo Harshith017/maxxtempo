@@ -1477,7 +1477,7 @@ function delta(cur, prev, unit=''){
 /* ---------- charts ---------- */
 function chartW(wide){ const vw=(window.innerWidth||640)-64; return Math.round(Math.max(320, Math.min(wide?1000:560, vw))); }
 function niceMax(v){ if (v<=0) return 1; const p=10**Math.floor(Math.log10(v)); const m=v/p; return (m<=1?1:m<=2?2:m<=2.5?2.5:m<=5?5:10)*p; }
-function barChart({rows, target, color, unit, label, wide}){
+function barChart({rows, target, color, unit, label, wide, xfmt}){
   const W=chartW(wide),H=200,m={l:44,r:12,t:16,b:26};
   const iw=W-m.l-m.r, ih=H-m.t-m.b;
   const max = niceMax(Math.max(target||0, ...rows.map(r=>r.v))*1.08);
@@ -1489,10 +1489,10 @@ function barChart({rows, target, color, unit, label, wide}){
   rows.forEach((r,i) => {
     const x = m.l + i*bw + gap/2; const yv=y(r.v); const h = m.t+ih-yv;
     if (h>0.5) { const rr=Math.min(4,w/2,h); bars += `<path fill="${color}" d="M${x},${m.t+ih} V${yv+rr} Q${x},${yv} ${x+rr},${yv} H${x+w-rr} Q${x+w},${yv} ${x+w},${yv+rr} V${m.t+ih} Z"/>`; }
-    bars += `<rect x="${m.l+i*bw}" y="${m.t}" width="${bw}" height="${ih}" fill="transparent" data-tip="${esc(fmtDate(r.date)+'\n'+label+': '+n0(r.v)+' '+unit+(target?'\nTarget: '+n0(target)+' '+unit:''))}"/>`;
+    bars += `<rect x="${m.l+i*bw}" y="${m.t}" width="${bw}" height="${ih}" fill="transparent" data-tip="${esc((xfmt?xfmt(r.date):fmtDate(r.date))+'\n'+label+': '+n0(r.v)+' '+unit+(target?'\nTarget: '+n0(target)+' '+unit:''))}"/>`;
   });
   const idx = [0, Math.floor((rows.length-1)/2), rows.length-1];
-  let xl=''; [...new Set(idx)].forEach(i => { const anchor = i===0?'start':i===rows.length-1?'end':'middle'; const x = i===0?m.l: i===rows.length-1? W-m.r : m.l+i*bw+bw/2; xl += `<text x="${x}" y="${H-8}" text-anchor="${anchor}">${esc(fmtDate(rows[i].date,{day:'numeric',month:'short'}))}</text>`; });
+  let xl=''; [...new Set(idx)].forEach(i => { const anchor = i===0?'start':i===rows.length-1?'end':'middle'; const x = i===0?m.l: i===rows.length-1? W-m.r : m.l+i*bw+bw/2; xl += `<text x="${x}" y="${H-8}" text-anchor="${anchor}">${esc(xfmt?xfmt(rows[i].date):fmtDate(rows[i].date,{day:'numeric',month:'short'}))}</text>`; });
   let ref='';
   if (target) ref = `<line class="ref" x1="${m.l}" x2="${W-m.r}" y1="${y(target)}" y2="${y(target)}"/><text class="ref-t" x="${W-m.r}" y="${y(target)-5}" text-anchor="end">Target ${n0(target)}</text>`;
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)} per day">${g}${bars}${ref}${xl}</svg>`;
@@ -2464,6 +2464,7 @@ function viewTrends(){
     return lineChart({pts:pts.map(x=>({date:x.date, v:x.trend, raw:x.kg, tip:`trend ${n1(x.trend)} kg`})), unit:'kg', color:'var(--water)'}) + '<div class="muted small">The line is your smoothed weight trend, which your targets use. Daily weigh-ins swing 1–2 kg with water and food.</div>'; })();
   return `<div class="grid">
     ${boardHtml()}
+    ${trainingTrends()}
     <div class="panel-head"><h2>Last 7 days</h2><span class="muted small">${esc(fmtDate(rows[0].date,{day:'numeric',month:'short'}))} – ${esc(fmtDate(rows[6].date,{day:'numeric',month:'short'}))}</span></div>
     ${stateKey()}
     <div class="grid two">
@@ -2481,9 +2482,144 @@ function viewTrends(){
       ${fold('t-activity', 'Activity', `${actCount} session${actCount===1?'':'s'}`, activityHtml)}
       ${fold('t-targets', 'Daily targets reached', tries?`${hits} of ${tries}`:'', targetsHtml)}
       ${fold('t-sports', 'Sports played', sportKcal?`${n0(sportKcal)} kcal this week`:'', sportSummary(a,b,label))}
+      ${fold('t-body', 'Body measurements &amp; photos', (S.measures||[]).length?`last ${esc(fmtDate((S.measures||[]).map(m=>m.date).sort().pop(),{day:'numeric',month:'short'}))}`:'add yours', measuresHtml())}
       ${fold('t-weight', 'Body weight &amp; maintenance', weights.length?`${n1(weights[weights.length-1].d.weight_kg)} kg`:'', trendsW + maintenancePanel())}
     </section>
   </div>`;
+}
+
+/* ---------- training trends: streaks, muscles, monthly report, year in review ---------- */
+const trainedOn = d => d && ((d.exercises||[]).length || (d.sports||[]).length);
+const workingSets = e => (e.sets||[]).filter(s=>s.type!=='warmup');
+function workoutStreaks(){
+  const days = new Set([...S.days].filter(([,d])=>trainedOn(d)).map(([k])=>k)); if (!days.size) return {weeks:0, best:0, thisWeek:0};
+  const has = m => [0,1,2,3,4,5,6].some(i=>days.has(addDays(m,i)));
+  const mon = weekMonday(localDate()); let w = has(mon) ? mon : addDays(mon,-7), weeks = 0;
+  while (has(w)) { weeks++; w = addDays(w,-7); }
+  let best = 0, run = 0; for (let m = weekMonday([...days].sort()[0]); m <= mon; m = addDays(m,7)) { run = has(m) ? run+1 : 0; best = Math.max(best, run); }
+  return {weeks, best, thisWeek:[0,1,2,3,4,5,6].filter(i=>days.has(addDays(mon,i))).length};
+}
+// Working sets per muscle between two dates (gym only; cardio left out).
+function muscleSets(a, b){
+  const out = {}; for (const m of MUSCLES) if (m!=='cardio') out[m] = 0;
+  for (const [date,d] of S.days) { if (date<a || date>b) continue;
+    for (const e of d.exercises||[]) { const g = e.muscle_group; if (!g || g==='cardio') continue; const n = workingSets(e).length;
+      if (g==='full body') { for (const m of ['chest','back','shoulders','legs','core']) out[m] += n/5; } else out[g] = (out[g]||0) + n; } }
+  return out;
+}
+// A simple front and back figure; each muscle is shaded by how many sets it got.
+function bodyMap(sets){
+  const max = Math.max(1, ...Object.values(sets));
+  const f = m => { const v = sets[m]||0; return v ? `color-mix(in srgb, var(--accent) ${Math.round(25+75*v/max)}%, var(--surface-2))` : 'var(--surface-2)'; };
+  const t = m => `<title>${titleCase(m)}: ${n0(sets[m]||0)} set${Math.round(sets[m]||0)===1?'':'s'}</title>`;
+  const fig = (x, back) => `<g transform="translate(${x},0)">
+    <circle cx="50" cy="16" r="12" fill="var(--surface-2)" stroke="var(--line)"/>
+    <ellipse cx="27" cy="44" rx="11" ry="9" fill="${f('shoulders')}">${t('shoulders')}</ellipse><ellipse cx="73" cy="44" rx="11" ry="9" fill="${f('shoulders')}">${t('shoulders')}</ellipse>
+    ${back ? `<path d="M36 38 L64 38 L68 92 L32 92 Z" fill="${f('back')}">${t('back')}</path>`
+           : `<rect x="34" y="38" width="15" height="24" rx="6" fill="${f('chest')}">${t('chest')}</rect><rect x="51" y="38" width="15" height="24" rx="6" fill="${f('chest')}">${t('chest')}</rect>
+              <rect x="38" y="64" width="24" height="30" rx="7" fill="${f('core')}">${t('core')}</rect>`}
+    <ellipse cx="20" cy="66" rx="7" ry="15" fill="${f(back?'triceps':'biceps')}">${t(back?'triceps':'biceps')}</ellipse><ellipse cx="80" cy="66" rx="7" ry="15" fill="${f(back?'triceps':'biceps')}">${t(back?'triceps':'biceps')}</ellipse>
+    <ellipse cx="16" cy="98" rx="5" ry="13" fill="var(--surface-2)"/><ellipse cx="84" cy="98" rx="5" ry="13" fill="var(--surface-2)"/>
+    ${back ? `<ellipse cx="41" cy="104" rx="11" ry="10" fill="${f('glutes')}">${t('glutes')}</ellipse><ellipse cx="59" cy="104" rx="11" ry="10" fill="${f('glutes')}">${t('glutes')}</ellipse>` : ''}
+    <ellipse cx="41" cy="${back?136:124}" rx="10" ry="${back?20:26}" fill="${f('legs')}">${t('legs')}</ellipse><ellipse cx="59" cy="${back?136:124}" rx="10" ry="${back?20:26}" fill="${f('legs')}">${t('legs')}</ellipse>
+    <ellipse cx="41" cy="172" rx="7" ry="16" fill="${f('legs')}">${t('legs')}</ellipse><ellipse cx="59" cy="172" rx="7" ry="16" fill="${f('legs')}">${t('legs')}</ellipse>
+    <text x="50" y="200" text-anchor="middle" font-size="11" fill="var(--ink-3)">${back?'Back':'Front'}</text></g>`;
+  return `<svg class="bodymap" viewBox="0 0 220 206" role="img" aria-label="Sets per muscle">${fig(0,false)}${fig(115,true)}</svg>`;
+}
+function monthStats(a, b){
+  let days=0, sets=0, volume=0, minutes=0, prs=0; const ex = {}, mus = {};
+  for (const [date,d] of S.days) { if (date<a || date>b || !trainedOn(d)) continue; days++;
+    for (const e of d.exercises||[]) { const ws = workingSets(e); sets += ws.length; volume += ws.reduce((s,x)=>s+(x.weight||0)*(x.reps||0),0); ex[e.name] = (ex[e.name]||0) + ws.length; if (e.muscle_group && e.muscle_group!=='cardio') mus[e.muscle_group] = (mus[e.muscle_group]||0) + ws.length; if (e.duration_min && !ws.length) minutes += e.duration_min; }
+    minutes += (d.workouts||[]).reduce((s,w)=>s+(w.minutes||0),0) + (d.sports||[]).reduce((s,x)=>s+(x.minutes||0),0);
+    prs += prsOn(date).size; }
+  const top = o => Object.entries(o).sort((x,y)=>y[1]-x[1])[0];
+  return {days, sets, volume, minutes, prs, topEx: top(ex), topMuscle: top(mus)};
+}
+const hrs = m => m>=60 ? `${Math.floor(m/60)}h ${pad(Math.round(m%60))}m` : `${Math.round(m)} min`;
+function monthReport(){
+  const t = localDate(), m0 = t.slice(0,8)+'01', pm = addDays(m0,-1), p0 = pm.slice(0,8)+'01';
+  const a = monthStats(m0, t), b = monthStats(p0, pm), name = fmtDate(m0,{month:'long'});
+  if (!a.days && !b.days) return '<div class="muted small">Your monthly report fills in as you train.</div>';
+  return `<div class="tiles"><div class="tile"><span class="l">Workouts</span><span class="v">${a.days}</span>${delta(a.days,b.days)}</div>
+      <div class="tile"><span class="l">Working sets</span><span class="v">${n0(a.sets)}</span>${delta(a.sets,b.sets)}</div>
+      <div class="tile"><span class="l">Volume</span><span class="v">${n0(a.volume)}<span class="muted" style="font-size:16px"> kg</span></span>${delta(a.volume,b.volume)}</div>
+      <div class="tile"><span class="l">Time training</span><span class="v" style="font-size:22px">${hrs(a.minutes)}</span>${delta(a.minutes,b.minutes)}</div></div>
+    <div class="kv"><span>Personal records</span><b>${a.prs}</b>${a.topEx?`<span>Most done</span><b>${esc(a.topEx[0])} · ${n0(a.topEx[1])} sets</b>`:''}${a.topMuscle?`<span>Most trained</span><b>${esc(titleCase(a.topMuscle[0]))}</b>`:''}</div>
+    <div class="muted small">${esc(name)} so far, compared with all of ${esc(fmtDate(p0,{month:'long'}))}.</div>`;
+}
+function yearReview(){
+  const y = localDate().slice(0,4), s = monthStats(y+'-01-01', y+'-12-31');
+  if (!s.days) return '<div class="muted small">Your year in review fills in as you train.</div>';
+  const months = Array.from({length:12},(_,i)=>{ const m = `${y}-${pad(i+1)}`; return {m, n:[...S.days].filter(([k,d])=>k.startsWith(m)&&trainedOn(d)).length}; });
+  const best = months.reduce((a,b)=>b.n>a.n?b:a);
+  return `<div class="tiles"><div class="tile"><span class="l">Workouts</span><span class="v">${s.days}</span></div><div class="tile"><span class="l">Volume</span><span class="v">${n0(s.volume/1000)}<span class="muted" style="font-size:16px"> t</span></span></div>
+      <div class="tile"><span class="l">Time training</span><span class="v" style="font-size:22px">${hrs(s.minutes)}</span></div><div class="tile"><span class="l">PRs</span><span class="v">${s.prs}</span></div></div>
+    <div class="kv">${s.topEx?`<span>Favourite exercise</span><b>${esc(s.topEx[0])}</b>`:''}${s.topMuscle?`<span>Most trained</span><b>${esc(titleCase(s.topMuscle[0]))}</b>`:''}<span>Best month</span><b>${esc(fmtDate(best.m+'-01',{month:'long'}))} · ${best.n} workouts</b><span>Longest weekly streak</span><b>${workoutStreaks().best} weeks</b></div>
+    ${barChart({rows:months.map(x=>({date:x.m+'-15', v:x.n})), color:'var(--accent)', unit:'workouts', label:'Workouts per month', wide:true, xfmt:x=>fmtDate(x,{month:'short'})})}`;
+}
+function trainingTrends(){
+  const st = workoutStreaks(), per = S.musclePeriod || 'week', t = localDate();
+  const a = per==='week' ? weekMonday(t) : per==='month' ? t.slice(0,8)+'01' : addDays(t,-29);
+  const sets = muscleSets(a, t), list = Object.entries(sets).filter(([,v])=>v>0).sort((x,y)=>y[1]-x[1]), max = Math.max(1, ...list.map(x=>x[1]));
+  return `<section class="panel span2" aria-label="Training"><div class="panel-head"><h2>Training</h2>${hideBtn('tr','training')}</div>
+    ${isHidden('tr') ? '' : `<div class="tiles"><div class="tile"><span class="l">Week streak</span><span class="v">${st.weeks}<span class="muted" style="font-size:16px"> ${st.weeks===1?'week':'weeks'}</span></span><span class="muted small">best ${st.best}</span></div>
+      <div class="tile"><span class="l">This week</span><span class="v">${st.thisWeek}<span class="muted" style="font-size:16px"> ${st.thisWeek===1?'day':'days'}</span></span><span class="muted small">trained</span></div></div>
+    <div class="panel-head"><h3>Sets per muscle</h3><div class="seg" role="group" aria-label="Muscle period">${[['week','This week'],['month','This month'],['30','30 days']].map(([k,l])=>`<button data-action="musclePeriod" data-p="${k}" aria-pressed="${per===k}">${l}</button>`).join('')}</div></div>
+    ${list.length ? `<div class="musclewrap">${bodyMap(sets)}<div class="musclebars">${list.map(([m,v])=>`<div class="mbar"><span>${esc(titleCase(m))}</span><span class="mtrack"><i style="width:${v/max*100}%"></i></span><b>${n0(v)}</b></div>`).join('')}</div></div>
+      <div class="muted small">Working sets (warm-ups left out). About 10–20 hard sets per muscle a week suits most people building muscle.</div>` : '<div class="muted small">No gym sets in this period yet.</div>'}
+    <section class="folds">${fold('t-month', 'Monthly report', esc(fmtDate(t,{month:'long'})), monthReport())}${fold('t-year', 'Year in review', t.slice(0,4), yearReview())}</section>`}
+  </section>`;
+}
+
+/* ---------- body measurements and progress photos ---------- */
+const MEASURES = [['waist','Waist'],['chest','Chest'],['arms','Arms'],['thighs','Thighs'],['hips','Hips'],['neck','Neck'],['calves','Calves'],['body_fat','Body fat %']];
+function measuresHtml(){
+  const ms = (S.measures||[]).slice().sort((a,b)=>a.date.localeCompare(b.date)), last = ms[ms.length-1] || {};
+  const rows = MEASURES.map(([k,l]) => { const pts = ms.filter(m=>m[k]>0); if (!pts.length) return '';
+    const first = pts[0][k], cur = pts[pts.length-1][k];
+    return `<div class="mrow2"><span>${l}</span><b>${n1(cur)}${k==='body_fat'?' %':' cm'}</b><span class="muted small">${pts.length>1?`${cur-first>0?'+':''}${n1(cur-first)} since ${esc(fmtDate(pts[0].date,{day:'numeric',month:'short'}))}`:'first entry'}</span>${spark(pts.map(p=>p[k]),'var(--accent)')}</div>`; }).join('');
+  return `<form class="form" id="msform" style="gap:10px">
+      <label class="field">Date<input type="date" id="ms_date" value="${localDate()}" max="${localDate()}"></label>
+      <div class="full micgrid">${MEASURES.map(([k,l])=>`<label class="field">${l}${k==='body_fat'?'':' (cm)'}<input type="number" step="0.1" min="0" inputmode="decimal" data-ms="${k}" placeholder="${last[k]?esc(n1(last[k])):''}"></label>`).join('')}</div>
+      <div class="full row"><span class="muted small">Fill in only what you measured.</span><span class="spacer"></span><button class="btn sm" type="submit">Save measurements</button></div></form>
+    ${rows ? `<div class="mlist">${rows}</div>` : ''}
+    ${ms.length ? `<details class="howfold"><summary>All entries</summary>${ms.slice().reverse().map(m=>`<div class="item"><div><div class="nm">${esc(fmtDate(m.date,{day:'numeric',month:'short',year:'numeric'}))}</div><div class="sub">${MEASURES.filter(([k])=>m[k]>0).map(([k,l])=>`${l} ${n1(m[k])}`).join(' · ')}</div></div><span></span><div class="acts"><button data-action="delMeasure" data-id="${esc(m.date)}" aria-label="Delete measurements from ${esc(m.date)}">✕</button></div></div>`).join('')}</details>` : ''}
+    <h3>Progress photos</h3>
+    <div class="muted small">Private: only you can see them. Same spot, light and pose each time makes changes easy to see.</div>
+    <div class="row"><select id="ph_pose"><option value="front">Front</option><option value="side">Side</option><option value="back">Back</option></select><label class="btn ghost sm" style="cursor:pointer">Add photo<input type="file" accept="image/*" id="ph_file" hidden></label>${(S.photos||[]).length>1?'<button class="btn ghost sm" data-action="photoCompare">Compare</button>':''}</div>
+    <div class="status" id="ph_msg"></div>
+    <div class="photos">${(S.photos||[]).map(p=>`<figure class="ph"><img src="${esc(p.url||'')}" alt="${esc(p.pose)} photo, ${esc(p.date)}" loading="lazy"><figcaption>${esc(fmtDate(p.date,{day:'numeric',month:'short'}))} · ${esc(p.pose)}<button class="linkbtn" data-action="photoDel" data-path="${esc(p.path)}" aria-label="Delete photo">✕</button></figcaption></figure>`).join('') || (S.photosLoaded ? '<div class="muted small">No photos yet.</div>' : '')}</div>`;
+}
+async function loadPhotos(){
+  if (!SB || !S.user) return;
+  try { const { data, error } = await SB.storage.from('progress').list(S.user.id, {limit:200, sortBy:{column:'name', order:'desc'}}); if (error) throw error;
+    const files = (data||[]).filter(f=>/\.jpg$/.test(f.name)); const paths = files.map(f=>S.user.id+'/'+f.name);
+    const signed = paths.length ? (await SB.storage.from('progress').createSignedUrls(paths, 3600)).data || [] : [];
+    S.photos = files.map((f,i)=>{ const [date, pose] = f.name.split('_'); return {path:paths[i], date, pose:pose||'front', url:(signed[i]||{}).signedUrl}; });
+  } catch (e) { console.warn('photos', e?.message); S.photos = S.photos || []; }
+  S.photosLoaded = true; if (S.view==='trends') render();
+}
+async function addPhoto(file, pose){
+  const msg = t => { const m = $('#ph_msg'); if (m) m.textContent = t; };
+  msg('Saving the photo…');
+  try { const bmp = await createImageBitmap(file), sc = Math.min(1, 1200/Math.max(bmp.width,bmp.height)); const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width*sc); c.height = Math.round(bmp.height*sc); c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+    const blob = await new Promise(r=>c.toBlob(r,'image/jpeg',0.82));
+    const path = `${S.user.id}/${localDate()}_${pose}_${uid().slice(0,8)}.jpg`;
+    const { error } = await SB.storage.from('progress').upload(path, blob, {contentType:'image/jpeg', upsert:false}); if (error) throw error;
+    msg('Saved.'); await loadPhotos();
+  } catch (e) { msg('Couldn’t save the photo. Check your connection and try again.'); console.warn('photo', e?.message); }
+}
+function photoCompare(){
+  const ph = S.photos||[]; if (ph.length<2) return; const d = $('#dlg');
+  const opt = sel => ph.map((p,i)=>`<option value="${i}" ${i===sel?'selected':''}>${esc(fmtDate(p.date,{day:'numeric',month:'short',year:'numeric'}))} · ${esc(p.pose)}</option>`).join('');
+  let a = ph.length-1, b = 0;
+  const draw = () => { d.innerHTML = `<div class="form" style="gap:10px"><h2 class="full">Compare photos</h2>
+      <label class="field">Before<select id="pc_a">${opt(a)}</select></label><label class="field">After<select id="pc_b">${opt(b)}</select></label>
+      <div class="full pcompare"><img src="${esc(ph[a].url||'')}" alt="Before"><img src="${esc(ph[b].url||'')}" alt="After"></div>
+      <div class="full row"><span class="spacer"></span><button class="btn" id="pc_ok">Done</button></div></div>`;
+    $('#pc_a').onchange = ev => { a = +ev.target.value; draw(); }; $('#pc_b').onchange = ev => { b = +ev.target.value; draw(); }; $('#pc_ok').onclick = () => d.close(); };
+  draw(); if (!d.open) d.showModal();
 }
 
 /* ---------- Profile (coach on top, then plan, then settings) ---------- */
@@ -2916,6 +3052,10 @@ document.addEventListener('click', ev => {
   if (b.classList.contains('tab')) return setView(b.dataset.view);
   const a = b.dataset.action, day = getDay(S.date);
   if (/^(wk|routine)/.test(a)) { wkAction(a, b); return; }
+  if (a==='musclePeriod') { S.musclePeriod = b.dataset.p; render(); return; }
+  if (a==='photoCompare') { photoCompare(); return; }
+  if (a==='photoDel') { const path = b.dataset.path; if (!confirm('Delete this photo? This can’t be undone.')) return; SB.storage.from('progress').remove([path]).then(() => { S.photos = (S.photos||[]).filter(p=>p.path!==path); render(); }); return; }
+  if (a==='delMeasure') { const id = b.dataset.id, m = (S.measures||[]).find(x=>x.date===id); if (!m) return; S.measures = S.measures.filter(x=>x!==m); render(); if (S.db) S.db.doc('measurements/'+id).delete().catch(()=>{}); toast('Deleted measurements', () => { S.measures = [...(S.measures||[]), m]; render(); S.db && S.db.doc('measurements/'+id).set(m); }); return; }
   switch (a) {
     case 'log': submitLog(); break;
     case 'stop': S.ctl?.abort(); break;
@@ -3048,6 +3188,13 @@ document.addEventListener('toggle', ev => { const k = ev.target.dataset && ev.ta
   if (ev.target.open) S.openFolds.add(k); else S.openFolds.delete(k);
   try { localStorage.setItem('fl:folds', JSON.stringify([...S.openFolds])); } catch {} }, true);
 document.addEventListener('input', ev => bindInput(ev.target));
+// Measurements form and progress photo upload (Trends).
+document.addEventListener('submit', ev => { if (ev.target.id!=='msform') return; ev.preventDefault();
+  const date = $('#ms_date').value || localDate(), prev = (S.measures||[]).find(m=>m.date===date) || {date}; const m = {...prev, date}; let n = 0;
+  ev.target.querySelectorAll('[data-ms]').forEach(el => { const v = num(el.value, 400); if (v>0) { m[el.dataset.ms] = Math.round(v*10)/10; n++; } });
+  if (!n) { toast('Type at least one measurement.'); return; }
+  S.measures = [...(S.measures||[]).filter(x=>x.date!==date), m]; render(); if (S.db) S.db.doc('measurements/'+date).set(m).catch(()=>{}); toast('Measurements saved'); }, true);
+document.addEventListener('change', ev => { if (ev.target.id==='ph_file' && ev.target.files?.[0]) { const f = ev.target.files[0]; ev.target.value=''; addPhoto(f, $('#ph_pose')?.value||'front'); } });
 // Live workout fields: kept as typed, saved on the device, no re-render (keeps the keyboard up).
 document.addEventListener('input', ev => { const t = ev.target, w = S.workout; if (!w) return;
   if (t.dataset.wk) { const s = w.exercises[+t.dataset.ex]?.sets[+t.dataset.set]; if (s) { s[t.dataset.wk] = t.value.replace(',', '.'); wkSave(); } }
@@ -3567,6 +3714,8 @@ async function startFor(user){
   db.collection('foodlib').onSnapshot(snap => { if (S.indbBuiltIn) return; const rows=[]; for (const d of snap.docs) { try { rows.push(...JSON.parse(d.data().rows||'[]')); } catch {} } S.libFoods = rows.map(r=>rowToFood(r,'indb')); S.myFoodsVer=(S.myFoodsVer||0)+1; });
   db.collection('foods').limit(1000).onSnapshot(snap => { const m={}; for (const d of snap.docs) m[d.id]={...d.data()}; S.myFoods=m; S.myFoodsVer=(S.myFoodsVer||0)+1; });
   wkLoad();
+  db.collection('measurements').limit(500).onSnapshot(snap => { S.measures = snap.docs.map(d=>({...d.data()})); render(); });
+  loadPhotos();
   db.collection('routines').limit(100).onSnapshot(snap => { S.routines = snap.docs.map(d=>({...d.data()})); render(); });
   db.collection('reviews').orderBy('created','desc').limit(10).onSnapshot(snap => { S.reviews = snap.docs.map(d=>({...d.data()})); render(); });
   db.collection('days').orderBy('date','desc').limit(1000).onSnapshot(snap => {
