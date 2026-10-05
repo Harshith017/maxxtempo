@@ -33,6 +33,8 @@ const FOOD_ROWS = [
 ['Coconut chutney','coconut chutney|chutney',{serving:45,tbsp:15,katori:60},200,2.5,8,18,4,3, 15,0,250,250,10,1.2,25,0.5,0,1,0,0,10,0],
 ['Oats (dry)','oats|rolled oats|oatmeal dry',{cup:80,tbsp:10,scoop:40},389,16.9,66,6.9,10.6,1, 1.2,0,2,429,54,4.7,177,4,0,0,0,0,56,0.1],
 ['Oats porridge','oats porridge|porridge|cooked oats',{katori:200,cup:240},71,2.5,12,1.5,1.7,0.3, 0.3,0,50,70,9,0.9,27,0.6,0,0,0,0,6,0],
+// Yoga Bar High Protein Oats, Dark Chocolate: from the pack label (per 100 g dry; 1 serving = 50 g). Label gives no vitamins or minerals beyond sodium.
+['Yoga Bar High Protein Oats Dark Chocolate','yoga bar high protein oats dark chocolate|yoga bar high protein oats|yogabar high protein oats|yoga bar protein oats|yogabar protein oats|yoga bar oats|yogabar oats|yoga bar dark chocolate oats|yogabar dark chocolate oats|yoga bar chocolate oats|yogabar chocolate oats|high protein oats dark chocolate',{serving:50,scoop:50},364,26,57.3,5.9,11.1,15.9, 1.3,0,130.4,0,0,0,0,0,0,0,0,0,0,0],
 ['White bread','bread|white bread|bread slice',{slice:25},265,9,49,3.2,2.7,5, 0.7,0,490,115,60,1.5,23,0.8,0,0,0,0,30,0],
 ['Brown bread','brown bread|whole wheat bread|multigrain bread|atta bread',{slice:27},250,10,43,3.5,6,5, 0.7,0,450,250,60,2.5,75,1.8,0,0,0,0,40,0.1],
 ['Cornflakes','cornflakes|corn flakes',{cup:30,katori:30},360,7,84,0.4,3,8, 0.1,0,700,100,5,8,15,0.3,0,0,0,0,0,0],

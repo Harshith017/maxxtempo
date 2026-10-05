@@ -581,6 +581,8 @@ function matchFood(text){
 }
 const WATER_RE = /^(?:(\d+(?:\.\d+)?)\s*(ml|l|ltr|litres?|liters?|glass(?:es)?|bottles?)\s*(?:of\s+)?water|water\s*(\d+(?:\.\d+)?)\s*(ml|l|ltr|litres?|liters?|glass(?:es)?|bottles?)|(\d+|a|one|two|three|four)\s+(glass(?:es)?|bottles?)\s+(?:of\s+)?water)$/;
 const NON_FOOD_RE = /\b(\d+\s*x\s*\d+|sets?|reps?|bench|squat|deadlift|press|curl|row|pull ?ups?|push ?ups?|lat|gym|workout|nets|match|bowled|overs?|batted|badminton|cricket|football|run|ran|running|walk|walked|cycling|swim|yoga|steps|slept|sleep|weight\s*\d|weighed|health:|creatine|vitamin|supplement|capsule|tablet|fish oil|omega|multivitamin|ashwagandha|electrolyte|pre-?workout|zinc|magnesium)\b/;
+// "Yoga Bar" is a food brand, not yoga the activity.
+const YOGA_BAR = /\byoga ?bar\b/gi;
 function parseQty(s){
   s = s.replace(/½/g,' 0.5 ').replace(/¼/g,' 0.25 ').replace(/¾/g,' 0.75 ').trim();
   let m = s.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+)\s*(.*)$/); if (m) return {q:+m[1]/+m[2], rest:m[3]};
@@ -594,7 +596,7 @@ function parsePart(raw){
   const wm = s.match(WATER_RE);
   if (wm) { const q = parseQty((wm[1]||wm[3]||wm[5]||'1')).q || 1; const u = (wm[2]||wm[4]||wm[6]||'ml');
     const ml = /^l|ltr|litre|liter/.test(u) ? q*1000 : /glass/.test(u) ? q*250 : /bottle/.test(u) ? q*1000 : q; return {water:Math.round(ml)}; }
-  if (NON_FOOD_RE.test(s)) return null;
+  if (NON_FOOD_RE.test(s.replace(YOGA_BAR,' '))) return null;
   // quantity + unit first ("2 roti", "150 g chicken"), or trailing ("chicken 150 g", "rice 2 cups")
   let {q, rest} = parseQty(s); let unit=null;
   let w = rest.split(' ')[0]; if (UNIT_WORDS[w]) { unit=UNIT_WORDS[w]; rest=rest.slice(w.length).trim(); }
@@ -662,7 +664,7 @@ function localParse(text, date){
     const last = sports[sports.length-1];
     if (last && typeof Sports!=='undefined' && Sports.isDetail(chunk)) { const sp = sportFromText(last.entry+' '+chunk, date); if (sp) { sports[sports.length-1] = {...sp, entry:last.entry+', '+chunk}; continue; } }
     let foodText = chunk;
-    if (typeof Sports!=='undefined' && Sports.ready()) {
+    if (typeof Sports!=='undefined' && Sports.ready() && !/\byoga ?bar\b/i.test(chunk)) {
       const {acts, rest:other} = Sports.split(chunk); const got = acts.map(t => [t, sportFromText(t, date)]);
       if (got.length && got.every(([,sp]) => sp)) { for (const [t,sp] of got) sports.push({...sp, entry:t}); prev = null; if (!other.length) continue; foodText = other.join(' and '); }
     }
