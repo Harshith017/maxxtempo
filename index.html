@@ -255,6 +255,12 @@ details.micros>summary .muted{white-space:nowrap;margin-left:auto}
 .photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}.ph{margin:0;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:var(--surface-2)}
 .ph img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block}.ph figcaption{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:2px 6px;color:var(--ink-2)}
 .pcompare{display:grid;grid-template-columns:1fr 1fr;gap:6px}.pcompare img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:10px;background:var(--surface-2)}
+.post{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}.post.me{border-color:color-mix(in srgb,var(--accent) 40%,var(--line))}
+.post-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.post-title{font-weight:600;font-size:15px}
+.post-ex{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:2px;font-size:13.5px}.post-ex li{display:flex;justify-content:space-between;gap:8px}.post-ex li span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.post-pr{font-size:13px;color:var(--ink-2)}.post-foot{display:flex;align-items:center;gap:10px;margin-top:4px;flex-wrap:wrap}
+.likebtn{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;min-height:36px;min-width:52px;padding:0 12px;font:inherit;font-size:15px;cursor:pointer}.likebtn[aria-pressed=true]{color:#E5484D;border-color:color-mix(in srgb,#E5484D 45%,var(--line));background:color-mix(in srgb,#E5484D 8%,var(--surface))}
+.feed{display:flex;flex-direction:column;gap:10px}
 .wkstart .routines{display:grid;gap:10px}.routine{display:flex;justify-content:space-between;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;flex-wrap:wrap}.routine>div:first-child{min-width:0;flex:1 1 180px}
 .wklive{gap:14px}.wkhead{display:flex;flex-direction:column;gap:8px;position:sticky;top:0;z-index:3;background:var(--surface);padding-bottom:8px;border-bottom:1px solid var(--line)}
 .wkname{font-family:inherit;font-weight:700;font-size:20px;line-height:1.2;border:0;background:transparent;color:var(--ink);padding:4px 0;width:100%}.wkname:focus{outline:2px solid var(--accent);border-radius:6px}

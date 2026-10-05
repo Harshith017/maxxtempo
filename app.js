@@ -1945,6 +1945,7 @@ function wkFinishNow(){
   const routine = (S.routines||[]).find(r=>r.id===w.routine_id);
   const prs = ex.flatMap(e => e.sets.filter(s=>s.pr).map(s => ({name:e.name, text: Number(s.weight)>0 ? `${n1(Number(s.weight))} kg × ${s.reps}` : `${s.reps} reps`})));
   S.workout = null; wkSave(); stopRest(); render();
+  postWorkout(summary, out, date, prs);
   wkSummary(summary, out, date, routine, prs);
 }
 function wkSummary(sm, out, date, routine, prs){
@@ -2464,6 +2465,7 @@ function viewTrends(){
     return lineChart({pts:pts.map(x=>({date:x.date, v:x.trend, raw:x.kg, tip:`trend ${n1(x.trend)} kg`})), unit:'kg', color:'var(--water)'}) + '<div class="muted small">The line is your smoothed weight trend, which your targets use. Daily weigh-ins swing 1–2 kg with water and food.</div>'; })();
   return `<div class="grid">
     ${boardHtml()}
+    ${feedHtml()}
     ${trainingTrends()}
     <div class="panel-head"><h2>Last 7 days</h2><span class="muted small">${esc(fmtDate(rows[0].date,{day:'numeric',month:'short'}))} – ${esc(fmtDate(rows[6].date,{day:'numeric',month:'short'}))}</span></div>
     ${stateKey()}
@@ -3045,7 +3047,7 @@ function onProfileSubmit(ev){
     calorie_override:optNum(v('#pf_kcal'),6000), protein_override:optNum(v('#pf_prot'),400), carbs_override:optNum(v('#pf_carbs'),900), fat_override:optNum(v('#pf_fat'),300), fiber_override:optNum(v('#pf_fibre'),120), water_override_ml:optNum(v('#pf_water'),8000), steps_goal:optNum(v('#pf_steps'),50000)||10000};
   saveProfile(p); toast('Profile saved. Targets updated.');
 }
-function setView(v){ if (S.user && S.profile && needsPw() && v!=='setup') { if (!S.setup) startSetup('password'); return; } S.view=v; S.status=''; S.statusErr=false; render(); window.scrollTo({top:0}); if (v==='trends') loadBoard(); }
+function setView(v){ if (S.user && S.profile && needsPw() && v!=='setup') { if (!S.setup) startSetup('password'); return; } S.view=v; S.status=''; S.statusErr=false; render(); window.scrollTo({top:0}); if (v==='trends') { loadBoard(); loadFeed(); } }
 
 document.addEventListener('click', ev => {
   const b = ev.target.closest('[data-action],[data-view].tab'); if (!b) return;
@@ -3053,6 +3055,9 @@ document.addEventListener('click', ev => {
   const a = b.dataset.action, day = getDay(S.date);
   if (/^(wk|routine)/.test(a)) { wkAction(a, b); return; }
   if (a==='musclePeriod') { S.musclePeriod = b.dataset.p; render(); return; }
+  if (a==='feedLike') { feedLike(b.dataset.id); return; }
+  if (a==='feedDel') { feedDel(b.dataset.id); return; }
+  if (a==='feedMore') { S.feedAll = true; render(); return; }
   if (a==='photoCompare') { photoCompare(); return; }
   if (a==='photoDel') { const path = b.dataset.path; if (!confirm('Delete this photo? This can’t be undone.')) return; SB.storage.from('progress').remove([path]).then(() => { S.photos = (S.photos||[]).filter(p=>p.path!==path); render(); }); return; }
   if (a==='delMeasure') { const id = b.dataset.id, m = (S.measures||[]).find(x=>x.date===id); if (!m) return; S.measures = S.measures.filter(x=>x!==m); render(); if (S.db) S.db.doc('measurements/'+id).delete().catch(()=>{}); toast('Deleted measurements', () => { S.measures = [...(S.measures||[]), m]; render(); S.db && S.db.doc('measurements/'+id).set(m); }); return; }
@@ -3183,6 +3188,7 @@ document.addEventListener('change', ev => {
   if (el.dataset && el.dataset.action==='restToggle') { saveProfile({...prof(), rest_timer:el.checked}); if (!el.checked) stopRest(); }
   if (el.dataset && el.dataset.action==='restDefault') saveProfile({...prof(), rest_default:+el.value});
   if (el.dataset && el.dataset.action==='boardToggle') { boardLast = ''; saveProfile({...prof(), leaderboard:el.checked}); }
+  if (el.dataset && el.dataset.action==='feedToggle') saveProfile({...prof(), share_workouts:el.checked});
 });
 document.addEventListener('toggle', ev => { const k = ev.target.dataset && ev.target.dataset.fold; if (!k) return;
   if (ev.target.open) S.openFolds.add(k); else S.openFolds.delete(k);
@@ -3632,6 +3638,74 @@ function boardHtml(){
   </section>`;
 }
 
+/* ---------- workout feed (tables "feed_posts" and "feed_likes" in schema.sql) ---------- */
+// Finished workouts are shared with approved members, who can like them. No comments, by design.
+const FEED_DAYS = 30, FEED_SHOW = 8;
+const myName = () => (prof().name||'').trim().slice(0,40) || (S.user?.email||'').split('@')[0] || 'Member';
+function feedWorkout(sm, out, prs){
+  const best = e => { const ws = e.sets.filter(s=>s.type!=='warmup'); const top = ws.reduce((a,s)=>(!a || s.weight>a.weight || (s.weight===a.weight && s.reps>a.reps)) ? s : a, null);
+    return top ? (top.weight>0 ? `${n1(top.weight)} kg × ${top.reps}` : `${top.reps} reps`) : ''; };
+  return { title:String(sm.name||'Workout').slice(0,40), minutes:sm.minutes, sets:sm.sets, volume:sm.volume,
+    exercises: out.slice(0,12).map(e => ({ name:String(e.name).slice(0,40), sets:e.sets.filter(s=>s.type!=='warmup').length, best:best(e) })),
+    more: Math.max(0, out.length-12), prs: prs.slice(0,5).map(p => `${String(p.name).slice(0,40)}: ${p.text}`) };
+}
+async function postWorkout(sm, out, date, prs){
+  if (!SB || !S.user || prof().share_workouts === false) return;
+  let r; try { r = await SB.from('feed_posts').insert({ name:myName(), date, workout:feedWorkout(sm, out, prs) }).select('id,user_id,name,date,workout,created_at').single(); } catch (e) { r = {error:e}; }
+  const { data, error } = r; if (error) { console.warn('feed', error.message); return; }
+  S.feed = [data, ...(S.feed||[])]; if (S.view==='trends') render();
+}
+async function loadFeed(){
+  if (!SB || !S.user) return;
+  const since = new Date(Date.now() - FEED_DAYS*864e5).toISOString();
+  let data, likes = [];
+  try {
+    const r = await SB.from('feed_posts').select('id,user_id,name,date,workout,created_at').gte('created_at', since).order('created_at', {ascending:false}).limit(60);
+    if (r.error) return; data = r.data||[];
+    const ids = data.map(p=>p.id);
+    if (ids.length) { const l = await SB.from('feed_likes').select('post_id,user_id,name').in('post_id', ids); if (!l.error) likes = l.data||[]; }
+  } catch (e) { console.warn('feed', e?.message); return; }
+  S.feed = data; S.feedLikes = likes; S.feedLoaded = true; if (S.view==='trends') render();
+}
+async function feedLike(id){
+  const me = S.user?.id; if (!SB || !me) return;
+  const mine = (S.feedLikes||[]).some(l=>l.post_id===id && l.user_id===me), before = S.feedLikes||[];
+  S.feedLikes = mine ? before.filter(l=>!(l.post_id===id && l.user_id===me)) : [...before, {post_id:id, user_id:me, name:myName()}]; render();
+  let error; try { ({ error } = mine ? await SB.from('feed_likes').delete().match({post_id:id, user_id:me}) : await SB.from('feed_likes').insert({post_id:id, name:myName()})); } catch (e) { error = e; }
+  if (error) { S.feedLikes = before; render(); toast('Couldn’t save that like. Try again.'); }
+}
+async function feedDel(id){
+  const p = (S.feed||[]).find(x=>x.id===id); if (!p || !SB || !confirm('Remove this workout from the feed? It stays in your own log.')) return;
+  let error; try { ({ error } = await SB.from('feed_posts').delete().eq('id', id)); } catch (e) { error = e; }
+  if (error) { toast('Couldn’t remove it. Try again.'); return; }
+  S.feed = S.feed.filter(x=>x.id!==id); render();
+}
+function ago(iso){
+  const m = Math.round((Date.now()-Date.parse(iso))/60000);
+  if (m < 1) return 'just now'; if (m < 60) return `${m} min ago`; if (m < 1440) return `${Math.round(m/60)} h ago`;
+  const d = Math.round(m/1440); return d===1 ? 'yesterday' : d < 7 ? `${d} days ago` : fmtDate(iso.slice(0,10), {day:'numeric', month:'short'});
+}
+function feedHtml(){
+  const me = S.user?.id, off = prof().share_workouts === false, posts = S.feed||[], shown = S.feedAll ? posts : posts.slice(0, FEED_SHOW);
+  const likesOf = id => (S.feedLikes||[]).filter(l=>l.post_id===id);
+  const card = p => { const w = p.workout||{}, ls = likesOf(p.id), liked = ls.some(l=>l.user_id===me), others = ls.filter(l=>l.user_id!==me).map(l=>l.name||'Member');
+    const who = liked ? ['You', ...others] : others;
+    const hrs = m => m<60 ? `${m} min` : `${Math.floor(m/60)}h ${pad(m%60)}`;
+    return `<article class="post${p.user_id===me?' me':''}"><div class="post-head"><b>${esc(p.name||'Member')}${p.user_id===me?' <span class="muted">(you)</span>':''}</b><span class="muted small">${esc(ago(p.created_at))}</span></div>
+      <div class="post-title">${esc(w.title||'Workout')}</div>
+      <div class="muted small">${esc(hrs(Number(w.minutes)||0))} · ${n0(w.sets||0)} ${w.sets===1?'set':'sets'} · ${n0(w.volume||0)} kg volume</div>
+      <ul class="post-ex">${(w.exercises||[]).map(e=>`<li><span>${esc(e.sets)} × ${esc(e.name)}</span><span class="muted">${esc(e.best||'')}</span></li>`).join('')}${w.more?`<li class="muted">+ ${esc(w.more)} more</li>`:''}</ul>
+      ${(w.prs||[]).length?`<div class="post-pr">🏆 ${(w.prs||[]).map(esc).join(' · ')}</div>`:''}
+      <div class="post-foot"><button class="likebtn" data-action="feedLike" data-id="${esc(p.id)}" aria-pressed="${liked}" aria-label="${liked?'Unlike':'Like'} ${esc(p.name||'this')}’s workout">${liked?'♥':'♡'} <span>${ls.length||''}</span></button>
+        <span class="muted small">${who.length?`Liked by ${esc(who.slice(0,3).join(', '))}${who.length>3?` and ${who.length-3} more`:''}`:''}</span><span class="spacer"></span>
+        ${p.user_id===me?`<button class="linkbtn" data-action="feedDel" data-id="${esc(p.id)}">Remove</button>`:''}</div></article>`; };
+  return `<section class="panel feed" aria-label="Workout feed"><div class="panel-head"><h2>Workout feed</h2>${hideBtn('feed','workout feed')}</div>
+    ${isHidden('feed') ? '' : `${posts.length ? shown.map(card).join('') : `<div class="empty">${S.feedLoaded?'No workouts shared in the last 30 days. Finish a workout in Train and it shows up here.':'Loading…'}</div>`}
+    ${posts.length > shown.length ? `<div class="row"><button class="btn ghost sm" data-action="feedMore">Show ${posts.length-shown.length} more</button></div>` : ''}
+    <label class="check small"><input type="checkbox" data-action="feedToggle" ${off?'':'checked'}> Share my finished workouts here (name, exercises, best sets and PRs; members can like them)</label>`}
+  </section>`;
+}
+
 /* ---------- approvals (owner only) ---------- */
 async function loadMembers(){
   if (!S.isAdmin || !SB) return;
@@ -3697,7 +3771,7 @@ async function startFor(user){
   S.pendingUser = null; S.isAdmin = !!m.is_admin;
   S.user = user; S.dbState='connecting'; render();
   if (S.isAdmin) loadMembers();
-  loadPasskeys(); loadBoard(); loadHealthSync(); loadData();
+  loadPasskeys(); loadBoard(); loadFeed(); loadHealthSync(); loadData();
   const db = FL.makeDb(SB, user.id, {
     onStatus: st => { if (S.sync!==st) { S.sync = st; render(); } },
     onError: code => { if (code==='too_large') toast('One change was too large to sync and was skipped.'); },
