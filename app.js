@@ -38,10 +38,6 @@ const EXAMPLES = [
   '2 rotis, 1 katori dal, 100g paneer bhurji',
   '500ml water',
   'slept 6h 50m, 8400 steps',
-  'bench 60kg 3x8, incline db 22.5 x10 x10 x8',
-  'squat 80x5, 85x5, 90x3; 20 min treadmill',
-  'badminton doubles 1 hr',
-  'cricket nets 90 min, bowled 6 overs pace, faced 40 balls',
 ];
 
 /* ---------- helpers ---------- */
@@ -983,14 +979,6 @@ function saveSportProfile(key, name, questions, answers){
 }
 const actTitle = a => a.v===2 ? a.title : sportTitle(a);
 const actLine = a => a.v===2 ? (a.summary || (a.components||[]).map(c=>c.part).join(' · ')) : sportLine(a);
-function latestRecovery(){
-  const now = Date.now(); let best=null;
-  for (let i=0;i<4;i++){ const d=S.days.get(addDays(localDate(),-i)); if(!d) continue;
-    const cands = [...(d.sports||[]).filter(a=>a.recovery&&a.recovery.ready_at).map(a=>({label:a.title, r:a.recovery})), ...(d.gym_recovery&&d.gym_recovery.ready_at?[{label:'Gym ('+(d.gym_recovery.muscles||[]).join(', ')+')', r:d.gym_recovery}]:[])];
-    for (const c of cands) { const t=Date.parse(c.r.ready_at); if (!best || t>best.t) best={...c, t}; } }
-  if (!best) return null; return {...best, recovering: best.t>now};
-}
-const fmtReady = t => new Date(t).toLocaleString('en-IN',{weekday:'short', hour:'numeric', minute:'2-digit'});
 
 
 /* ---------- activity panel + setup ---------- */
@@ -1002,23 +990,14 @@ function activityPanel(day){
     h += `<div class="act"><div class="act-h"><div><div class="nm">${esc(actTitle(a))}${a.rpe?` <span class="tag">effort ${a.rpe}/10</span>`:''}</div><div class="sub">${esc(actLine(a))}${a.minutes?` · ${n0(a.minutes)} min`:''}</div></div>
       <div class="kc">${n0(a.kcal)}<span class="muted small"> kcal</span></div>
       <div class="acts"><button data-action="editSport" data-id="${a.id}" aria-label="Edit ${esc(actTitle(a))}">Edit</button><button data-action="delSport" data-id="${a.id}" aria-label="Delete ${esc(actTitle(a))}">✕</button></div></div>
-      ${a.recovery ? recoveryHtml(a.recovery) : ''}
       ${a.v===2 && (a.components||[]).length ? `<details class="how"><summary>How this was worked out</summary><ul>${a.components.map(c=>`<li>${esc(c.part)} · ${n0(c.minutes)} min · MET ${n1(c.met)}</li>`).join('')}</ul><div class="muted small">${a.kcal_gross?`${n0(a.kcal_gross)} kcal in total, minus your resting burn for those minutes = ${n0(a.kcal)} kcal extra. `:''}${esc(a.assumptions||'')}</div></details>`:''}
     </div>`;
   }
   if (ex.length) {
     h += `<div class="act"><div class="act-h"><div><div class="nm">Gym session</div><div class="sub">${ex.length} exercise${ex.length>1?'s':''}${day.gym_recovery&&day.gym_recovery.muscles?.length?` · ${esc(day.gym_recovery.muscles.join(', '))}`:''}</div></div><div class="kc">${n0(t.gym)}<span class="muted small"> kcal</span></div><span></span></div>
-      ${exerciseList(day)}
-      ${day.gym_recovery ? recoveryHtml(day.gym_recovery) : ''}</div>`;
+      ${exerciseList(day)}</div>`;
   }
   return h;
-}
-function recoveryHtml(r){
-  const t = Date.parse(r.ready_at); const left = t - Date.now();
-  const lvl = r.level==='hard'?'bad':r.level==='light'?'good':'warn';
-  return `<div class="rec"><div class="row"><span class="pill ${lvl}">${left>0?`Recovering · ready ${esc(fmtReady(t))}`:'Recovered'}</span><span class="muted small">about ${Math.round(r.hours)} h</span></div>
-    ${r.summary?`<div class="small">${esc(r.summary)}</div>`:''}
-    ${(r.tips||[]).length?`<ul class="tips">${r.tips.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}</div>`;
 }
 function staleSports(){
   const cutoff = addDays(localDate(), -90);
@@ -1534,7 +1513,7 @@ function loggerHtml(kind){
     </div>
     <div class="status${S.statusErr?' err':''}" id="logStatus" aria-live="polite">${esc(S.status)}</div>
     ${kind!=='gym'&&recentFoods().length?fold('d-quick', 'Quick add', `${recentFoods().length} foods you eat often`, `<div class="chips" aria-label="Frequent foods">${recentFoods().map(f=>`<button class="chip" style="border-style:solid" data-action="relog" data-id="${f.id}">${esc(f.name)}${f.quantity?' · '+esc(f.quantity):''}</button>`).join('')}</div>`, 'inline'):''}
-    ${kind==='gym'||!recentFoods().length?`<div class="chips" aria-label="Examples"><span class="muted small" style="align-self:center">Try:</span>${(kind==='gym'?EXAMPLES.slice(4):EXAMPLES.slice(0,4)).map(x=>`<button class="chip" data-action="example" data-text="${esc(x)}">${esc(x)}</button>`).join('')}</div>`:''}
+    ${kind!=='gym'&&!recentFoods().length?`<div class="chips" aria-label="Examples"><span class="muted small" style="align-self:center">Try:</span>${EXAMPLES.slice(0,4).map(x=>`<button class="chip" data-action="example" data-text="${esc(x)}">${esc(x)}</button>`).join('')}</div>`:''}
   </section>`;
 }
 function healthPanel(H){
