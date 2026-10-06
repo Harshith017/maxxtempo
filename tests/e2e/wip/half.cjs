@@ -1,0 +1,30 @@
+const { chromium } = require('/opt/node22/lib/node_modules/playwright'); const fs=require('fs');
+const stub = fs.readFileSync(__dirname+'/stub2.js','utf8'); const seed = JSON.parse(fs.readFileSync(__dirname+'/seed.json','utf8'));
+const out=[]; const ok=(n,p,i='')=>console.log(`${p?'PASS':'FAIL'}  ${n}${i?'  — '+i:''}`);
+(async()=>{ const b=await chromium.launch(); const p=await (await b.newContext({viewport:{width:390,height:844}})).newPage(); const errs=[]; p.on('pageerror',e=>errs.push(e.message));
+  await p.addInitScript(`window.__SEED__=${JSON.stringify(seed)};`);
+  const calls=[]; let delay=0;
+  await p.route(/functions\/v1\/claude/, async r => { const d=JSON.parse(r.request().postData()||'{}'); calls.push(d.task);
+    if (d.task==='usage') return r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({ok:true,ready:true,usage:{count:0,cap:30}})});
+    if (delay) await new Promise(z=>setTimeout(z,delay));
+    if (d.task==='log') { const entry=(d.prompt||'').split('Entry: """')[1]||'';
+      return r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({ok:true,json:{foods:[],exercises:[],activities:/kabaddi/i.test(entry)?[{sport:'Kabaddi',entry:'kabaddi 1 hour'}]:[],supplements:[],water_ml:0,notes:''},usage:{count:1,cap:30}})}); }
+    return r.fulfill({status:503,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({ok:false,code:'busy'})}); });
+  await p.route(/functions\/v1\/(?!claude)/, r=>r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:'{"ok":true,"passkeys":[],"connected":false}'}));
+  await p.route(/^https:\/\/(?!cdn\.jsdelivr)(?!.*functions\/v1)/, r=>r.abort());
+  await p.route(/cdn\.jsdelivr\.net\/npm\/@supabase/, r=>r.fulfill({contentType:'application/javascript', body:stub}));
+  await p.route(/localhost:8765\/(index\.html)?(\?.*)?$/, async r => { const res = await fetch('http://localhost:8765/index.html'); r.fulfill({status:200, contentType:'text/html', body:(await res.text()).replace(/ integrity="sha384-Rj26[^"]*"/,'')}); });
+  await p.goto('http://localhost:8765/',{waitUntil:'load'}); await p.waitForTimeout(2000);
+  const st = async()=> (await p.textContent('#logStatus').catch(()=>''))||'';
+  const main = async()=> (await p.textContent('#main')).replace(/\s+/g,' ');
+  const log = async (t, w=900) => { calls.length=0; await p.fill('#logText',t,{timeout:5000}).catch(async e=>{console.log('FILL FAIL', (await p.textContent('#main')).replace(/\s+/g,' ').slice(0,600)); throw e;}); await p.click('[data-action=log]'); await p.waitForTimeout(w); };
+  const out2=[]; const ok2=(n,p,i='')=>out2.push(`${p?'PASS':'FAIL'}  ${n}${i?'  — '+i:''}`);
+  for (const t of ['Half California Cheesy Chicken Dominator Quesadilla','1/2 california cheesy chicken dominator quesadilla']) { await log(t); const s = await st(); ok2(t, /Logged 1 food · 170 kcal/.test(s), s); }
+  await p.click('[data-fold=d-food] summary').catch(()=>{}); await p.waitForTimeout(300);
+  ok2('Name says Half', /Half California Burrito Cheesy Chicken Dominator Quesadilla/.test(await main()));
+  await p.click('[data-action=foodSearch]'); await p.waitForTimeout(300); await p.click('#fcb'); await p.waitForTimeout(300);
+  await p.selectOption('#cb_meal','quesadilla'); await p.waitForTimeout(200); await p.selectOption('[data-s=protein]','CHEESY CHICKEN DOMINATOR'); await p.waitForTimeout(200);
+  await p.selectOption('#cb_qty','0.5'); await p.click('#cbform button[type=submit]'); await p.waitForTimeout(600);
+  ok2('Picker logs half', /Half California Burrito Cheesy Chicken Dominator Quesadilla · 170 kcal/.test(await st()), await st());
+  ok2('No page errors', !errs.length, errs.join(' | ')); console.log(out2.join('\n'));
+  await b.close(); })();

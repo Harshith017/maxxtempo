@@ -1,0 +1,52 @@
+const { chromium } = require('/opt/node22/lib/node_modules/playwright'); const fs=require('fs');
+const stub = fs.readFileSync(__dirname+'/stub2.js','utf8'); const seed = JSON.parse(fs.readFileSync(__dirname+'/seed.json','utf8'));
+const out=[]; const ok=(n,p,i='')=>console.log(`${p?'PASS':'FAIL'}  ${n}${i?'  — '+i:''}`);
+(async()=>{ const b=await chromium.launch(); const p=await (await b.newContext({viewport:{width:390,height:844}})).newPage(); const errs=[]; p.on('pageerror',e=>errs.push(e.message));
+  await p.addInitScript(`window.__SEED__=${JSON.stringify(seed)};`);
+  const calls=[]; let delay=0;
+  await p.route(/functions\/v1\/claude/, async r => { const d=JSON.parse(r.request().postData()||'{}'); calls.push(d.task);
+    if (d.task==='usage') return r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({ok:true,ready:true,usage:{count:0,cap:30}})});
+    if (delay) await new Promise(z=>setTimeout(z,delay));
+    if (d.task==='log') { const entry=(d.prompt||'').split('Entry: """')[1]||'';
+      return r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({ok:true,json:{foods:[],exercises:[],activities:/kabaddi/i.test(entry)?[{sport:'Kabaddi',entry:'kabaddi 1 hour'}]:[],supplements:[],water_ml:0,notes:''},usage:{count:1,cap:30}})}); }
+    return r.fulfill({status:503,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({ok:false,code:'busy'})}); });
+  await p.route(/functions\/v1\/(?!claude)/, r=>r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:'{"ok":true,"passkeys":[],"connected":false}'}));
+  await p.route(/^https:\/\/(?!cdn\.jsdelivr)(?!.*functions\/v1)/, r=>r.abort());
+  await p.route(/cdn\.jsdelivr\.net\/npm\/@supabase/, r=>r.fulfill({contentType:'application/javascript', body:stub}));
+  await p.route(/localhost:8765\/(index\.html)?(\?.*)?$/, async r => { const res = await fetch('http://localhost:8765/index.html'); r.fulfill({status:200, contentType:'text/html', body:(await res.text()).replace(/ integrity="sha384-Rj26[^"]*"/,'')}); });
+  await p.goto('http://localhost:8765/',{waitUntil:'load'}); await p.waitForTimeout(2000);
+  const st = async()=> (await p.textContent('#logStatus').catch(()=>''))||'';
+  const main = async()=> (await p.textContent('#main')).replace(/\s+/g,' ');
+  const log = async (t, w=900) => { calls.length=0; await p.fill('#logText',t,{timeout:5000}).catch(async e=>{console.log('FILL FAIL', (await p.textContent('#main')).replace(/\s+/g,' ').slice(0,600)); throw e;}); await p.click('[data-action=log]'); await p.waitForTimeout(w); };
+  await log('wefit bbq chicken beast bowl, half boss bowl'); let s = await st();
+  ok('Typed WeFit meals log without AI', !calls.filter(c=>c!=='usage').length && /2 foods · 1,?078 kcal/.test(s), `${calls} | ${s}`);
+  await log('we fit beast bowl and pesto & chicken keto salad, 1 banana'); s = await st();
+  ok('Two WeFit dishes + banana, no AI', !calls.filter(c=>c!=='usage').length && /3 foods/.test(s), `${calls} | ${s}`);
+  await log('chicken tikka wrap'); s = await st();
+  ok('Plain “chicken tikka wrap” is not WeFit', !/WeFit/.test(await main()) || !/WeFit Chicken Tikka Wrap/.test(await main()), s);
+  await p.click('[data-fold=d-food] summary').catch(()=>{}); await p.waitForTimeout(300);
+  const t = await main();
+  ok('Shows in what I ate', /WeFit BBQ Chicken Beast Bowl/.test(t) && /Half WeFit Chicken Peri Peri Boss Bowl/.test(t) && /half meal/.test(t), (t.match(/Half WeFit[^]{0,80}/)||[''])[0]);
+  // Find food
+  await p.click('[data-action=foodSearch]'); await p.waitForTimeout(300); await p.fill('#fq','wefit keto'); await p.waitForTimeout(500);
+  const rows = await p.$$eval('#fres .exrow', xs=>xs.map(x=>x.textContent.replace(/\s+/g,' ').trim()));
+  ok('Search “wefit keto” lists keto meals per meal', rows.length>=10 && rows.every(r=>/WeFit .*kcal per meal/.test(r)), rows.slice(0,2).join(' | '));
+  await p.fill('#fq','beast'); await p.waitForTimeout(500);
+  const rows2 = await p.$$eval('#fres .exrow', xs=>xs.map(x=>x.textContent.replace(/\s+/g,' ').trim()));
+  ok('Plain search also offers WeFit', rows2.some(r=>/WeFit BBQ Chicken Beast Bowl/.test(r)), rows2.join(' | ').slice(0,200));
+  await p.click('#fres .exrow:has-text("WeFit BBQ Chicken Beast Bowl")'); await p.waitForTimeout(300);
+  ok('Opens WeFit dialog on that meal', /724 kcal/.test(await p.textContent('#wf_prev')) && (await p.inputValue('#wf_meal'))==='BBQ Chicken Beast Bowl', await p.textContent('#wf_prev'));
+  await p.selectOption('#wf_qty','2'); await p.waitForTimeout(100);
+  ok('Two meals doubles it', /1,?449 kcal/.test(await p.textContent('#wf_prev')), await p.textContent('#wf_prev'));
+  await p.click('#wfform details summary'); ok('Parts listed', /Boneless Chicken \(raw\) 225 g/.test(await p.textContent('#wfform details')));
+  await p.click('#wfform button[type=submit]'); await p.waitForTimeout(600);
+  ok('Logged from the dialog', /Logged WeFit BBQ Chicken Beast Bowl · 1,?449 kcal/.test(await st()), await st());
+  // picker via button
+  await p.click('[data-action=foodSearch]'); await p.waitForTimeout(300); await p.click('#fwf'); await p.waitForTimeout(300);
+  await p.selectOption('#wf_cat','Grilled Protein'); await p.waitForTimeout(150);
+  await p.selectOption('#wf_meal','Herb Grilled Chicken Boneless'); await p.waitForTimeout(150);
+  ok('Picker: category then meal', /335 kcal/.test(await p.textContent('#wf_prev')) && /protein 54 g/.test(await p.textContent('#wf_prev')), await p.textContent('#wf_prev'));
+  await (await p.$('#wfform')).screenshot({path:__dirname+'/wefit-dialog.png'});
+  await p.click('#wf_cancel');
+  // Train page doesn't take food
+  ok('No page errors', !errs.length, errs.join(' | ')); await b.close(); })();

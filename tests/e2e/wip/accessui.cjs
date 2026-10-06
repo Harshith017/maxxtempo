@@ -1,0 +1,43 @@
+const ref='idmvlecpdgtiyjeikphi', T=process.env.SUPABASE_ACCESS_TOKEN, U=`https://${ref}.supabase.co`;
+const sql = q => fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`,{method:'POST',headers:{Authorization:`Bearer ${T}`,'Content-Type':'application/json'},body:JSON.stringify({query:q})}).then(r=>r.json());
+const { chromium } = require('/opt/node22/lib/node_modules/playwright'); const fs=require('fs'), path=require('path');
+const ROOT='/home/user/fuel-lift', APP='https://harshith017.github.io/maxxtempo/'; const types={'.js':'application/javascript','.html':'text/html','.json':'application/json','.png':'image/png'};
+const out=[]; const ok=(n,p,i='')=>out.push(`${p?'PASS':'FAIL'}  ${n}${i?'  — '+i:''}`);
+(async()=>{ const b=await chromium.launch(); const p=await (await b.newContext({viewport:{width:390,height:844}})).newPage(); const errs=[]; p.on('pageerror',e=>errs.push(e.message));
+  await p.route(/^https:\/\/harshith017\.github\.io\/maxxtempo\//, r => { let f=new URL(r.request().url()).pathname.replace('/maxxtempo/',''); if(!f) f='index.html'; const fp=path.join(ROOT,f.split('?')[0]); if(!fs.existsSync(fp)) return r.fulfill({status:404,body:''}); r.fulfill({status:200, contentType:types[path.extname(fp)]||'application/octet-stream', body:fs.readFileSync(fp)}); });
+  await p.route(/^https:\/\/(idmvlecpdgtiyjeikphi\.supabase\.co|cdn\.jsdelivr\.net|fonts\.(googleapis|gstatic)\.com|api\.pwnedpasswords\.com)\//, async r => { const q=r.request(); try { const res=await fetch(q.url(),{method:q.method(),headers:q.headers(),body:q.postDataBuffer()||undefined}); const hd={}; res.headers.forEach((v,k)=>{ if(!/encoding|length/.test(k)) hd[k]=v; }); r.fulfill({status:res.status,headers:hd,body:Buffer.from(await res.arrayBuffer())}); } catch { r.abort(); } });
+  await p.route(/^wss?:/, r=>r.abort());
+  const email=`access-ui-${Date.now()}@maxxtempo.test`; let uid=null;
+  const txt = async()=> (await p.textContent('#main')).replace(/\s+/g,' ');
+  try {
+  await p.goto(APP,{waitUntil:'load'}); await p.waitForTimeout(2000);
+  let t = await txt(); ok('Sign-in screen: no Create account / email link', !/Create account|sign-in link/.test(t) && /Request access/.test(t), t.slice(0,160));
+  await p.click('[data-action=authRequest]'); await p.fill('#reqEmail', email); await p.click('[data-action=accessRequest]'); await p.waitForTimeout(4000);
+  t = await txt(); ok('Waiting screen', /Waiting for approval/.test(t) && t.includes(email), t.slice(0,120));
+  await p.reload(); await p.waitForTimeout(3500); ok('Waiting survives reload', /Waiting for approval/.test(await txt()));
+  await p.click('[data-action=accessCheck]'); await p.waitForTimeout(3000); ok('Check now: not yet', /Not approved yet/.test(await txt()));
+  const m = await sql(`select user_id from public.members where email='${email}'`); uid = m[0]?.user_id;
+  await sql(`update public.members set status='approved' where user_id='${uid}'`);
+  await p.click('[data-action=accessCheck]'); await p.waitForTimeout(7000);
+  t = await txt(); ok('Approved → signed in → About you', /About you/.test(t), t.slice(0,120));
+  ok('No skip on first setup', !(await p.$('[data-action=setupSkip]')));
+  await p.click('[data-action=setupNext]'); await p.waitForTimeout(500); ok('Details required', /About you/.test(await txt()) && /Add your name, your date of birth, your height, your weight, your sex, your goal/.test(await p.textContent('#toast')), await p.textContent('#toast'));
+  await p.fill('[data-bind="about.name"]','Test'); await p.fill('[data-bind="about.birth"]','1998-05-04'); await p.fill('[data-bind="about.height_cm"]','175'); await p.fill('[data-bind="about.weight_kg"]','72');
+  await p.click('[data-action=setupNext]'); await p.waitForTimeout(400); ok('Sex and goal must be chosen', /your sex, your goal/.test(await p.textContent('#toast')), await p.textContent('#toast'));
+  await p.selectOption('[data-bind="about.sex"]','male'); await p.selectOption('[data-bind="about.goal"]','maintain');
+  await p.click('[data-action=setupNext]'); await p.waitForTimeout(2500);
+  t = await txt(); ok('Password step next', /Choose a password/.test(t) && await p.isDisabled('[data-action=setupNext]'), t.slice(0,100));
+  await p.reload(); await p.waitForTimeout(5000); t = await txt(); ok('Reopen before password → password step again', /Choose a password/.test(t), t.slice(0,100));
+  await p.click('.tab[data-view=today]').catch(()=>{}); await p.waitForTimeout(300); ok('Can’t leave before password', /Choose a password/.test(await txt()));
+  await p.fill('#suPass','Kx7!mwq2-Tz9vRb4'); await p.fill('#suPass2','Kx7!mwq2-Tz9vRbX'); await p.click('[data-action=setupPassword]'); await p.waitForTimeout(300); ok('Mismatch caught', /don’t match/.test(await txt()));
+  await p.fill('#suPass','Kx7!mwq2-Tz9vRb4'); await p.fill('#suPass2','Kx7!mwq2-Tz9vRb4'); await p.click('[data-action=setupPassword]'); await p.waitForTimeout(5000);
+  t = await txt(); ok('Password saved', /Password saved/.test(t), t.slice(0,160));
+  await p.click('[data-action=setupNext]'); await p.waitForTimeout(500); t = await txt(); ok('Sports step, skippable', /What do you play/.test(t) && !!(await p.$('[data-action=setupFinish]')));
+  await p.click('[data-action=setupFinish]'); await p.waitForTimeout(3000); t = await txt(); ok('Skip → into the app', !/Step \d of/.test(t) && /Today’s goals/.test(t), t.slice(0,120));
+  const md = await sql(`select raw_user_meta_data->>'needs_password' np, encrypted_password<>'' haspw from auth.users where id='${uid}'`); ok('Server: password set, flag cleared', md[0]?.np==='false' && md[0]?.haspw===true, JSON.stringify(md));
+  const pr = await sql(`select data->>'name' n, data->>'height_cm' h from public.docs where user_id='${uid}' and collection='profile'`); ok('Profile saved', pr[0]?.n==='Test' && +pr[0]?.h===175, JSON.stringify(pr));
+  // sign out, then sign back in with the password
+  await p.evaluate(()=>localStorage.clear()); const ctx2 = await b.newContext({viewport:{width:390,height:844}}); 
+  } finally { if (uid) { const keys = await (await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`,{headers:{Authorization:`Bearer ${T}`}})).json(); const SR = keys.find(k=>k.name==='service_role').api_key;
+      const d = await fetch(`${U}/auth/v1/admin/users/${uid}`,{method:'DELETE',headers:{apikey:SR,Authorization:`Bearer ${SR}`}}); out.push('cleanup '+d.status); } }
+  ok('No page errors', !errs.length, errs.join(' | ')); console.log(out.join('\n')); await b.close(); })();

@@ -1,0 +1,32 @@
+const { chromium } = require('/opt/node22/lib/node_modules/playwright'); const fs=require('fs');
+const stub = fs.readFileSync(__dirname+'/stub3.js','utf8'); const seed = JSON.parse(fs.readFileSync(__dirname+'/seed.json','utf8'));
+const out=[]; const ok=(n,p,i='')=>out.push(`${p?'PASS':'FAIL'}  ${n}${i?'  — '+i:''}`);
+(async()=>{ const b=await chromium.launch(); const ctx=await b.newContext({viewport:{width:390,height:844}}); const p=await ctx.newPage(); const errs=[]; p.on('pageerror',e=>errs.push(e.message)); p.on('dialog', d=>d.type()==='prompt'?d.accept('Push day'):d.accept());
+  await p.addInitScript(`window.__SEED__=${JSON.stringify(seed)};`);
+  await p.route(/functions\/v1\//, r=>r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:'{"ok":true,"ready":true,"usage":{"count":0,"cap":30},"passkeys":[],"connected":false}'}));
+  await p.route(/^https:\/\/(?!cdn\.jsdelivr)(?!.*functions\/v1)/, r=>r.abort());
+  await p.route(/cdn\.jsdelivr\.net\/npm\/@supabase/, r=>r.fulfill({contentType:'application/javascript', body:stub}));
+  await p.route(/localhost:8765\/(index\.html)?(\?.*)?$/, async r => { const res = await fetch('http://localhost:8765/index.html'); r.fulfill({status:200, contentType:'text/html', body:(await res.text()).replace(/ integrity="sha384-Rj26[^"]*"/,'')}); });
+  await p.goto('http://localhost:8765/',{waitUntil:'load'}); await p.waitForTimeout(2000);
+  await p.click('.tab[data-view=gym]'); await p.waitForTimeout(400);
+  await p.click('[data-action=routineNew]'); await p.waitForTimeout(300);
+  await p.fill('#rt_name', 'Pull day');
+  await p.click('#rt_add'); await p.waitForTimeout(300); await p.fill('#xp_q','lat pulldown'); await p.waitForTimeout(300); await p.click('#xp_res .exrow'); await p.waitForTimeout(300);
+  ok('First exercise added to the routine', (await p.$$('.rtrow')).length===1 && (await p.inputValue('#rt_name'))==='Pull day');
+  await p.fill('[data-rt=reps][data-i="0"]','10');
+  await p.click('#rt_add'); await p.waitForTimeout(300);
+  ok('Picker button says Back', (await p.textContent('#xp_close')).trim()==='Back');
+  await p.click('#xp_close'); await p.waitForTimeout(300);
+  ok('Back keeps the routine open with name, exercise and reps', await p.isVisible('#rtform') && (await p.inputValue('#rt_name'))==='Pull day' && (await p.$$('.rtrow')).length===1 && (await p.inputValue('[data-rt=reps][data-i="0"]'))==='10');
+  await p.click('#rt_add'); await p.waitForTimeout(300); await p.keyboard.press('Escape'); await p.waitForTimeout(300);
+  ok('Esc also goes back to the routine', await p.isVisible('#rtform') && (await p.$$('.rtrow')).length===1);
+  await p.click('#rtform button[type=submit]'); await p.waitForTimeout(400);
+  ok('Routine saves', !(await p.evaluate(()=>document.querySelector('#dlg').open)) && /Pull day/.test(await p.textContent('#main')));
+  // live workout picker still just closes
+  await p.click('[data-action=wkStart]'); await p.waitForTimeout(300); await p.click('[data-action=wkAddEx]'); await p.waitForTimeout(300);
+  ok('Workout picker says Close and closes', (await p.textContent('#xp_close')).trim()==='Close' && (await p.click('#xp_close'), await p.waitForTimeout(200), !(await p.evaluate(()=>document.querySelector('#dlg').open))));
+  // another dialog afterwards closes normally with Esc (no leftover handler)
+  await p.click('[data-action=wkAddEx]'); await p.waitForTimeout(300); await p.click('#xp_res .exrow'); await p.waitForTimeout(300);
+  await p.click('[data-action=wkPlates]').catch(()=>{}); await p.waitForTimeout(200); await p.keyboard.press('Escape'); await p.waitForTimeout(200);
+  ok('Other dialogs still close with Esc', !(await p.evaluate(()=>document.querySelector('#dlg').open)));
+  ok('No page errors', !errs.length, errs.join(' | ')); console.log(out.join('\n')); await b.close(); })();

@@ -1,0 +1,17 @@
+const { chromium } = require('/opt/node22/lib/node_modules/playwright'); const fs=require('fs'), path=require('path');
+const ROOT='/home/user/fuel-lift', APP='https://harshith017.github.io/maxxtempo/'; const types={'.js':'application/javascript','.html':'text/html','.json':'application/json','.png':'image/png'};
+const s = JSON.parse(fs.readFileSync(__dirname+'/tpw.json','utf8')); const out=[]; const ok=(n,p,i='')=>out.push(`${p?'PASS':'FAIL'}  ${n}${i?'  — '+i:''}`);
+(async()=>{ const b=await chromium.launch(); const p=await (await b.newContext({viewport:{width:390,height:844}})).newPage(); const errs=[]; p.on('pageerror',e=>errs.push(e.message));
+  await p.route(/^https:\/\/harshith017\.github\.io\/maxxtempo\//, r => { let f=new URL(r.request().url()).pathname.replace('/maxxtempo/',''); if(!f) f='index.html'; const fp=path.join(ROOT,f.split('?')[0]); if(!fs.existsSync(fp)) return r.fulfill({status:404,body:''}); r.fulfill({status:200, contentType:types[path.extname(fp)]||'application/octet-stream', body:fs.readFileSync(fp)}); });
+  await p.route(/^https:\/\/(idmvlecpdgtiyjeikphi\.supabase\.co|cdn\.jsdelivr\.net|fonts\.(googleapis|gstatic)\.com|api\.pwnedpasswords\.com)\//, async r => { const q=r.request(); try { const res=await fetch(q.url(),{method:q.method(),headers:q.headers(),body:q.postDataBuffer()||undefined}); const hd={}; res.headers.forEach((v,k)=>{ if(!/encoding|length/.test(k)) hd[k]=v; }); r.fulfill({status:res.status,headers:hd,body:Buffer.from(await res.arrayBuffer())}); } catch { r.abort(); } });
+  await p.route(/^wss?:/, r=>r.abort());
+  await p.goto(APP,{waitUntil:'load'}); await p.waitForTimeout(2000);
+  await p.click('[data-action=forgotPw]'); await p.waitForTimeout(200); ok('Forgot password explains what to do', /Ask the owner to set a temporary password/.test(await p.textContent('#main')));
+  await p.fill('#authEmail', s.member.email); await p.fill('#authPass', s.temp); await p.click('[data-action=authPassword]'); await p.waitForTimeout(4500);
+  ok('Temporary password leads to "Choose a new password"', await p.isVisible('#mcPass'), (await p.textContent('#main')).replace(/\s+/g,' ').slice(0,70));
+  await p.fill('#mcPass','short'); await p.click('[data-action=mustChangeSave]'); await p.waitForTimeout(300); ok('Too-short password refused', /at least 8/.test(await p.textContent('#main')));
+  const np = 'Kx7!mwq2-Tz9vRb4'; await p.fill('#mcPass', np); await p.click('[data-action=mustChangeSave]'); await p.waitForTimeout(6000);
+  const main = (await p.textContent('#main')).replace(/\s+/g,' ');
+  ok('After saving, the member is in the app', !(await p.isVisible('#mcPass')) && /Set up|Log food|goal/i.test(main), main.slice(0,70));
+  fs.writeFileSync(__dirname+'/tpw-new.txt', np);
+  ok('No page errors', !errs.length, errs.join(' | ')); console.log(out.join('\n')); await b.close(); })();

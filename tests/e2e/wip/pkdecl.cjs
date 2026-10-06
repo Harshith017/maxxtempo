@@ -1,0 +1,11 @@
+const { chromium } = require('/opt/node22/lib/node_modules/playwright'); const fs=require('fs'), path=require('path');
+const ROOT='/home/user/fuel-lift', APP='https://harshith017.github.io/maxxtempo/'; const types={'.js':'application/javascript','.html':'text/html','.json':'application/json','.png':'image/png'};
+(async()=>{ const b=await chromium.launch(); const ctx=await b.newContext(); const p=await ctx.newPage();
+  await p.route(/^https:\/\/harshith017\.github\.io\/maxxtempo\//, r=>{ let f=new URL(r.request().url()).pathname.replace('/maxxtempo/','')||'index.html'; const fp=path.join(ROOT,f); if(!fs.existsSync(fp)) return r.fulfill({status:404,body:''}); r.fulfill({status:200,contentType:types[path.extname(fp)]||'application/octet-stream',body:fs.readFileSync(fp)}); });
+  await p.route(/^https:\/\/(idmvlecpdgtiyjeikphi\.supabase\.co|cdn\.jsdelivr\.net)\//, async r=>{ const q=r.request(); try { const res=await fetch(q.url(),{method:q.method(),headers:q.headers(),body:q.postDataBuffer()||undefined}); const hd={}; res.headers.forEach((v,k)=>{ if(!/encoding|length/.test(k)) hd[k]=v; }); r.fulfill({status:res.status,headers:hd,body:Buffer.from(await res.arrayBuffer())}); } catch { r.abort(); } });
+  await p.route(/^https:\/\/fonts/, r=>r.abort());
+  const cdp=await ctx.newCDPSession(p); await cdp.send('WebAuthn.enable'); const {authenticatorId}=await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',transport:'internal',hasResidentKey:true,hasUserVerification:true,isUserVerified:true,automaticPresenceSimulation:true}});
+  for (const c of JSON.parse(fs.readFileSync(__dirname+'/pke2e-creds.json','utf8'))) await cdp.send('WebAuthn.addCredential',{authenticatorId, credential:c});
+  await p.goto(APP,{waitUntil:'load'}); await p.waitForTimeout(1500); await p.click('[data-action=faceIdSignIn]'); await p.waitForTimeout(6000);
+  const st=(await p.textContent('.status').catch(()=>''))||''; const main=(await p.textContent('#main')).replace(/\s+/g,' ');
+  console.log((/waiting for the owner|not approved/i.test(st) && !/Log food/.test(main)) ? 'PASS  Removed person cannot sign in with Face ID — '+st : 'FAIL  '+st+' | '+main.slice(0,80)); await b.close(); })();

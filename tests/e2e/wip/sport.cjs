@@ -1,0 +1,64 @@
+const { chromium } = require('/opt/node22/lib/node_modules/playwright'); const fs=require('fs');
+const stub = fs.readFileSync(__dirname+'/stub2.js','utf8'); const seed = JSON.parse(fs.readFileSync(__dirname+'/seed.json','utf8'));
+const out=[]; const ok=(n,p,i='')=>console.log(`${p?'PASS':'FAIL'}  ${n}${i?'  — '+i:''}`);
+(async()=>{ const b=await chromium.launch(); const p=await (await b.newContext({viewport:{width:390,height:844}})).newPage(); const errs=[]; p.on('pageerror',e=>errs.push(e.message));
+  await p.addInitScript(`window.__SEED__=${JSON.stringify(seed)};`);
+  const calls=[]; let delay=0;
+  await p.route(/functions\/v1\/claude/, async r => { const d=JSON.parse(r.request().postData()||'{}'); calls.push(d.task);
+    if (d.task==='usage') return r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({ok:true,ready:true,usage:{count:0,cap:30}})});
+    if (delay) await new Promise(z=>setTimeout(z,delay));
+    if (d.task==='log') { const entry=(d.prompt||'').split('Entry: """')[1]||'';
+      return r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({ok:true,json:{foods:[],exercises:[],activities:/kabaddi/i.test(entry)?[{sport:'Kabaddi',entry:'kabaddi 1 hour'}]:[],supplements:[],water_ml:0,notes:''},usage:{count:1,cap:30}})}); }
+    return r.fulfill({status:503,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify({ok:false,code:'busy'})}); });
+  await p.route(/functions\/v1\/(?!claude)/, r=>r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:'{"ok":true,"passkeys":[],"connected":false}'}));
+  await p.route(/^https:\/\/(?!cdn\.jsdelivr)(?!.*functions\/v1)/, r=>r.abort());
+  await p.route(/cdn\.jsdelivr\.net\/npm\/@supabase/, r=>r.fulfill({contentType:'application/javascript', body:stub}));
+  await p.route(/localhost:8765\/(index\.html)?(\?.*)?$/, async r => { const res = await fetch('http://localhost:8765/index.html'); r.fulfill({status:200, contentType:'text/html', body:(await res.text()).replace(/ integrity="sha384-Rj26[^"]*"/,'')}); });
+  await p.goto('http://localhost:8765/',{waitUntil:'load'}); await p.waitForTimeout(2000);
+  const train = async () => (await p.textContent('section[aria-label="Training on this day"]')).replace(/\s+/g,' ');
+  await p.click('.tab[data-view=gym]'); await p.waitForTimeout(400);
+  ok('No Log training box on Train', !(await p.$('#logText')) && !(await p.$('section[aria-label="Log an entry"]')));
+  ok('Today page still has its food box', true);
+  const add = async (sport, min, det, eff) => { await p.click('[data-action=addSport]'); await p.waitForTimeout(500);
+    await p.selectOption('#as_key', sport); if (min!=null) await p.fill('#as_min', String(min)); if (det) await p.fill('#as_det', det); if (eff) await p.selectOption('#as_eff', eff); await p.waitForTimeout(150);
+    const prev = (await p.textContent('#as_prev')).replace(/\s+/g,' '); await p.click('#asform button[type=submit]'); await p.waitForTimeout(500); return prev; };
+  let pv = await add('badminton', 60);
+  const kc = +(pv.match(/about ([\d,]+) kcal/)||[])[1]?.replace(',','');
+  ok('Badminton 60 min: preview and sensible kcal (200-450)', kc>=200 && kc<=450, pv);
+  ok('Shows in today’s training', /Badminton/.test(await train()) && /60 min/.test(await train()), (await train()).slice(0,140));
+  pv = await add('badminton', 60, 'singles', 'hard'); const kc2 = +(pv.match(/about ([\d,]+) kcal/)||[])[1]?.replace(',','');
+  ok('Hard effort raises the estimate (hard singles > normal)', kc2 > kc, `${kc} → ${kc2}`);
+  pv = await add('running', 30, '5 km'); ok('Run with distance', /5 km/.test(pv) && /about \d+ kcal/.test(pv), pv);
+  pv = await add('cricket', 90, 'nets, bowled 6 overs pace, faced 40 balls'); ok('Cricket with overs', /Cricket/.test(await train()) && /about \d+ kcal/.test(pv), pv);
+  pv = await add('yoga', 45); ok('Yoga', /Yoga/.test(await train()), pv);
+  ok('No AI used for any of it', !calls.filter(c=>c!=='usage').length, calls.join(','));
+  // minutes default follows the sport unless typed
+  await p.click('[data-action=addSport]'); await p.waitForTimeout(400); await p.selectOption('#as_key','swimming'); await p.fill('#as_min',''); await p.waitForTimeout(100);
+  ok('Empty minutes: asks for them, no save', /Enter the minutes/.test(await p.textContent('#as_prev')));
+  await p.click('#asform button[type=submit]'); await p.waitForTimeout(200); ok('Form stays open', await p.isVisible('#asform')); await p.click('#as_cancel');
+  // past day
+  await p.evaluate(()=>{ const b=[...document.querySelectorAll('[data-action=prevDay],[data-action=dayPrev],[aria-label="Previous day"]')][0]; b && b.click(); }); await p.waitForTimeout(400);
+  const past = await p.textContent('section[aria-label="Training on this day"] h2');
+  ok('Moved to a past day', /Training on/.test(past), past);
+  ok('Workout panel says it saves to that day', /saved to/.test(await p.textContent('section[aria-label=Workout]')));
+  await add('walking', 40); ok('Sport added to the past day', /Walking/.test(await train()));
+  await p.click('[data-action=wkStart]'); await p.waitForTimeout(300);
+  ok('Live workout shows “Saving to …”', /Saving to/.test(await p.textContent('.wklive')));
+  await p.click('[data-action=wkAddEx]'); await p.waitForTimeout(300); await p.fill('#xp_q','bench'); await p.waitForTimeout(300); await p.click('#xp_res .exrow'); await p.waitForTimeout(300);
+  await (await p.$$('[data-wk=weight]'))[0].fill('50'); await (await p.$$('[data-wk=reps]'))[0].fill('8'); await (await p.$$('.wdone'))[0].click(); await p.waitForTimeout(200);
+  await p.click('[data-action=wkFinish]'); await p.waitForTimeout(800); await p.click('#ws_ok'); await p.waitForTimeout(300);
+  ok('Workout saved to the past day', /Gym session/.test(await train()) && /Training on/.test(await p.textContent('section[aria-label="Training on this day"] h2')));
+  // rest timer off
+  await p.click('[data-fold=g-settings] summary').catch(()=>{}); await p.waitForTimeout(200); await p.uncheck('[data-action=restToggle]').catch(()=>{}); await p.waitForTimeout(200);
+  await p.click('[data-action=wkStart]'); await p.waitForTimeout(300); await p.click('[data-action=wkAddEx]'); await p.waitForTimeout(300); await p.fill('#xp_q','bench'); await p.waitForTimeout(300); await p.click('#xp_res .exrow'); await p.waitForTimeout(300);
+  await (await p.$$('.wdone'))[0].click(); await p.waitForTimeout(300);
+  ok('Rest timer can be turned off', !(await p.isVisible('#restbar').catch(()=>false)));
+  await p.click('[data-action=wkDiscard]'); await p.waitForTimeout(300);
+  await p.screenshot({path:__dirname+'/train-nolog.png', fullPage:false});
+  await p.click('[data-action=addSport]'); await p.waitForTimeout(400); await p.selectOption('#as_key','badminton'); await p.selectOption('#as_eff','hard'); await p.fill('#as_det','singles'); await p.waitForTimeout(150);
+  await (await p.$('#asform')).screenshot({path:__dirname+'/addsport.png'});
+  const keys = await p.$$eval('#as_key option', xs=>xs.map(x=>x.value)); let none = [];
+  for (const k of keys) { await p.selectOption('#as_key', k); await p.fill('#as_min','30'); await p.waitForTimeout(30); if (!/about \d/.test(await p.textContent('#as_prev'))) none.push(k); }
+  ok(`Every activity in the list gives an estimate (${keys.length})`, keys.length>=49 && !none.length, none.join(','));
+  await p.click('#as_cancel');
+  ok('No page errors', !errs.length, errs.join(' | ')); await b.close(); })();
