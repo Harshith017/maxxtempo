@@ -68,3 +68,14 @@ test("an entry mixing a session and food is split", function () {
   assert.deepStrictEqual(S.split("badminton singles and doubles 1 hour"), { acts: ["badminton singles doubles 1 hour"], rest: [] });
   assert.ok(S.isDetail("bowled 6 overs")); assert.ok(!S.isDetail("2 roti"));
 });
+
+test("an effort picked in the app outweighs other words, and never goes the wrong way", function () {
+  var met = function (t, e) { return S.read(t, { effort: e }).met; };
+  assert.ok(met("badminton singles 60 min", "hard") > met("badminton singles 60 min"));
+  assert.ok(met("volleyball 60 min", "hard") > met("volleyball 60 min"));   // not "non-competitive"
+  assert.ok(met("volleyball 60 min", "easy") < met("volleyball 60 min"));
+  S.families().forEach(function (f) {
+    var t = f.name + " 60 min", n = met(t);
+    assert.ok(met(t, "easy") <= n && met(t, "hard") >= n, f.name);
+  });
+});
