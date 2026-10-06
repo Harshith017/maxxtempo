@@ -352,3 +352,120 @@ create policy "members read the feed" on public.feed_posts for select to authent
 create policy "post own workouts"     on public.feed_posts for insert to authenticated with check ((select auth.uid()) = user_id and (select private.is_approved()));
 create policy "delete own posts"      on public.feed_posts for delete to authenticated using ((select auth.uid()) = user_id);
 drop table if exists public.feed_likes;   -- likes were tried and dropped
+
+-- 15. Access requests: limited per network address (hashed), and request accounts that
+--     were never approved or used are cleared out after 30 days (supabase/functions/access).
+alter table public.access_claims add column if not exists ip_hash text;
+create or replace function public.access_cleanup(p_days int default 30)
+returns int language plpgsql security definer set search_path = public, auth as $$
+declare n int;
+begin
+  with gone as (
+    delete from auth.users u
+    using public.members m
+    where m.user_id = u.id
+      and m.status = 'pending' and not coalesce(m.is_admin, false)
+      and coalesce(u.encrypted_password, '') = ''
+      and u.last_sign_in_at is null
+      and not exists (select 1 from public.passkeys k where k.user_id = u.id)
+      and m.requested_at < now() - make_interval(days => p_days)
+      and not exists (select 1 from public.access_claims c where c.user_id = u.id and c.created_at > now() - make_interval(days => p_days))
+    returning 1)
+  select count(*) into n from gone;
+  return n;
+end $$;
+revoke all on function public.access_cleanup(int) from public, anon, authenticated;
+grant execute on function public.access_cleanup(int) to service_role;
+
+-- 16. Names on the leaderboard and feed come from the member's own profile, and
+--     leaderboard rows are checked: goals worked out here, numbers kept within what a
+--     week allows, and the score recomputed from them.
+create or replace function private.display_name(p_user uuid)
+returns text language sql stable security definer set search_path = public, auth as $$
+  select left(coalesce(
+    nullif(btrim((select d.data->>'name' from public.docs d where d.user_id = p_user and d.collection = 'profile' and d.id = 'me')), ''),
+    nullif(split_part((select u.email from auth.users u where u.id = p_user), '@', 1), ''),
+    'Member'), 40);
+$$;
+create or replace function private.set_display_name()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  new.name := private.display_name(new.user_id);
+  return new;
+end $$;
+create or replace function private.check_board_row()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  today date := (now() at time zone 'Asia/Kolkata')::date;
+  days int;
+  goal int;
+  part numeric;
+begin
+  new.name := private.display_name(new.user_id);
+  if new.week > today + 1 or new.week < today - 13 then raise exception 'week out of range'; end if;
+  days := greatest(1, least(7, (today - new.week) + 1));
+  select coalesce(nullif((d.data->>'steps_goal'), '')::numeric, 10000)::int into goal
+    from public.docs d where d.user_id = new.user_id and d.collection = 'profile' and d.id = 'me';
+  goal := greatest(1000, least(50000, coalesce(goal, 10000)));
+  new.steps_goal := goal * days;
+  new.burn_goal := round(2000.0 * days / 7);
+  new.workouts := greatest(0, least(coalesce(new.workouts, 0), days));
+  new.logged_days := greatest(0, least(coalesce(new.logged_days, 0), days));
+  new.steps := greatest(0, least(coalesce(new.steps, 0), 60000 * days));
+  new.burned := greatest(0, least(coalesce(new.burned, 0), 6000 * days));
+  new.protein_avg := greatest(0, least(coalesce(new.protein_avg, 0), 400));
+  new.protein_target := greatest(40, least(coalesce(new.protein_target, 0), 400));
+  part := least(1, new.workouts / 3.0)
+        + case when new.logged_days > 0 then least(1, new.protein_avg / new.protein_target) else 0 end
+        + least(1, new.steps::numeric / new.steps_goal)
+        + least(1, new.burned::numeric / new.burn_goal);
+  new.score := round(25 * part);
+  return new;
+end $$;
+create or replace trigger feed_posts_name before insert or update on public.feed_posts for each row execute function private.set_display_name();
+create or replace trigger leaderboard_check before insert or update on public.leaderboard for each row execute function private.check_board_row();
+
+-- 17. Shared barcode foods: values must be possible per 100 g, and an edit can't
+--     credit the food to someone else.
+create or replace function private.food_per_ok(p jsonb)
+returns boolean language sql immutable as $$
+  select coalesce(
+         jsonb_typeof(p->'kcal') = 'number'
+     and (p->>'kcal')::numeric between 0 and 950
+     and coalesce((p->>'protein')::numeric, 0) between 0 and 100
+     and coalesce((p->>'carbs')::numeric, 0) between 0 and 100
+     and coalesce((p->>'fat')::numeric, 0) between 0 and 100
+     and coalesce((p->>'fiber')::numeric, 0) between 0 and 100
+     and coalesce((p->>'sugar')::numeric, 0) between 0 and 100
+     and coalesce((p->>'protein')::numeric, 0) + coalesce((p->>'carbs')::numeric, 0) + coalesce((p->>'fat')::numeric, 0) <= 105, false);
+$$;
+alter table public.shared_foods drop constraint if exists shared_foods_per_sane;
+alter table public.shared_foods add constraint shared_foods_per_sane check (private.food_per_ok(per));
+alter policy "fix own shared foods" on public.shared_foods
+  using ((select private.is_approved()) and (added_by = (select auth.uid()) or (select private.is_admin())))
+  with check ((select private.is_approved()) and (added_by = (select auth.uid()) or (select private.is_admin())));
+
+-- 18. Co-owners. The main owner (primary_owner) can make approved members co-owners, who
+--     can approve and remove members and make temporary passwords, but never for an owner.
+alter table public.members add column if not exists primary_owner boolean not null default false;
+update public.members set primary_owner = true where is_admin and status = 'approved'
+  and not exists (select 1 from public.members where primary_owner);
+create or replace function public.set_member_status(p_user uuid, p_status text)
+returns void language plpgsql security definer set search_path to 'public' as $function$
+begin
+  if not private.is_admin() then raise exception 'not allowed'; end if;
+  if p_user = auth.uid() then raise exception 'you cannot change your own access'; end if;
+  if p_status not in ('approved','declined','pending') then raise exception 'bad status'; end if;
+  if exists (select 1 from public.members where user_id = p_user and is_admin) then raise exception 'owners can''t change another owner''s access'; end if;
+  update public.members set status = p_status, decided_at = now() where user_id = p_user;
+end $function$;
+create or replace function public.set_member_admin(p_user uuid, p_admin boolean)
+returns void language plpgsql security definer set search_path to 'public' as $function$
+begin
+  if not exists (select 1 from public.members where user_id = auth.uid() and status = 'approved' and is_admin and primary_owner) then raise exception 'only the main owner can do this'; end if;
+  if p_user = auth.uid() then raise exception 'you cannot change your own role'; end if;
+  if p_admin and not exists (select 1 from public.members where user_id = p_user and status = 'approved') then raise exception 'approve them first'; end if;
+  update public.members set is_admin = p_admin where user_id = p_user and not primary_owner;
+end $function$;
+revoke all on function public.set_member_admin(uuid, boolean) from public, anon;
+grant execute on function public.set_member_admin(uuid, boolean) to authenticated;

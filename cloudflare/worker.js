@@ -11,7 +11,11 @@ export default {
     const url = new URL(request.url);
     if (!PATHS.test(url.pathname)) return new Response('Not found', { status: 404 });
     const target = UPSTREAM + url.pathname + url.search;
-    // Websockets (realtime) and normal requests both go through as they are.
-    return fetch(new Request(target, request));
+    // Websockets (realtime) and normal requests go through as they are, plus the caller's
+    // address so the access function can limit sign-up requests per address.
+    const fwd = new Request(target, request);
+    const ip = request.headers.get('CF-Connecting-IP');
+    if (ip) fwd.headers.set('X-Client-IP', ip);
+    return fetch(fwd);
   },
 };

@@ -29,6 +29,42 @@
 
   const clone = v => (typeof structuredClone === 'function' ? structuredClone(v) : JSON.parse(JSON.stringify(v)));
 
+  /* ---------- merging edits made on two devices ----------
+     Each document is saved whole, so a phone and a laptop editing the same day would
+     overwrite each other. Instead each pending write remembers the version it started
+     from (base). If the server has changed since, the three are merged: whatever only
+     one side changed is kept, lists of items (foods, water, sets, sports…) are merged
+     item by item, and only a field both sides changed takes this device's version. */
+  const canon = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.keys(x).sort().reduce((o, key) => (o[key] = x[key], o), {}) : x);
+  const same = (a, b) => canon(a) === canon(b);
+  const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+  // A supplement from the daily stack is one per stack per day, whichever device added it.
+  const itemKey = x => isObj(x) ? (x.stack_id ? 'stack:' + x.stack_id : x.id != null ? 'id:' + x.id : 'v:' + canon(x)) : 'v:' + canon(x);
+  const keyed = a => Array.isArray(a) && a.every(x => isObj(x) && (x.id != null || x.stack_id));
+  function mergeList(b, o, t) {
+    const B = new Map((b || []).map(x => [itemKey(x), x])), T = new Map(t.map(x => [itemKey(x), x])), O = new Set(o.map(itemKey));
+    const out = [];
+    for (const x of o) {
+      const k = itemKey(x);
+      if (B.has(k) && !T.has(k) && same(x, B.get(k))) continue;          // removed on the other device
+      out.push(T.has(k) && B.has(k) ? merge3(B.get(k), x, T.get(k)) : x);
+    }
+    for (const x of t) { const k = itemKey(x); if (!O.has(k) && !B.has(k)) out.push(x); }   // added on the other device
+    return out;
+  }
+  function merge3(base, ours, theirs) {
+    if (theirs === undefined || theirs === null) return ours;
+    if (same(ours, theirs)) return ours;
+    if (Array.isArray(ours) && Array.isArray(theirs) && keyed(ours.concat(theirs))) return mergeList(Array.isArray(base) ? base : [], ours, theirs);
+    if (!isObj(ours) || !isObj(theirs)) return same(theirs, base) ? ours : same(ours, base) ? theirs : ours;
+    const b = isObj(base) ? base : {}, out = {};
+    for (const k of new Set([...Object.keys(b), ...Object.keys(ours), ...Object.keys(theirs)])) {
+      const v = same(ours[k], b[k]) ? theirs[k] : same(theirs[k], b[k]) ? ours[k] : merge3(b[k], ours[k], theirs[k]);
+      if (v !== undefined) out[k] = v;
+    }
+    return out;
+  }
+
   function makeDb(sb, uid, hooks = {}) {
     const cache = new Map();          // collection -> Map(id -> data)
     const listeners = new Set();
@@ -64,9 +100,13 @@
     function applyLocal(op, c, id, data) {
       if (op === 'set') col(c).set(id, clone(data)); else col(c).delete(id);
     }
-    function queue(op, c, id, data) {
-      pending = pending.filter(p => !(p.c === c && p.id === id));   // last write wins
-      pending.push({ op, c, id, data: op === 'set' ? clone(data) : null });
+    function queue(op, c, id, data, base) {
+      // A doc already waiting keeps the version it started from: that's what the server had.
+      const prev = pending.find(p => p.c === c && p.id === id);
+      pending = pending.filter(p => p !== prev);
+      const entry = { op, c, id, data: op === 'set' ? clone(data) : null };
+      if (op === 'set') { entry.b = 1; entry.base = prev ? prev.base : base === undefined ? null : clone(base); if (prev && !prev.b) entry.b = 0; }
+      pending.push(entry);
       idb.set(PKEY, pending);   // right away: this is the only copy until it syncs
       persist(); flush();
     }
@@ -77,16 +117,27 @@
       try {
         while (pending.length) {
           const p = pending[0];
+          let data = p.data;
+          if (p.op === 'set' && p.b) {
+            // Changed on another device since? Merge rather than overwrite.
+            const { data: row, error: e1 } = await sb.from('docs').select('data').match({ user_id: uid, collection: p.c, id: p.id }).maybeSingle();
+            if (e1) throw e1;
+            if (row && !same(row.data, p.base)) {
+              data = merge3(p.base, p.data, row.data);
+              if (!same(data, p.data)) { const live = pending.find(x => x.c === p.c && x.id === p.id && x !== p); if (!live) { col(p.c).set(p.id, clone(data)); notify(p.c); } }
+            }
+          }
           const q = p.op === 'set'
-            ? sb.from('docs').upsert({ user_id: uid, collection: p.c, id: p.id, data: p.data })
+            ? sb.from('docs').upsert({ user_id: uid, collection: p.c, id: p.id, data })
             : sb.from('docs').delete().match({ user_id: uid, collection: p.c, id: p.id });
           const { error } = await q;
           if (error) {
             // Too big or rejected by the database: drop it so the queue can move on.
-            if (/docs_size|check constraint|violates/i.test(error.message || '')) { pending.shift(); hooks.onError && hooks.onError('too_large', p); continue; }
+            if (/docs_size|check constraint|violates/i.test(error.message || '')) { pending = pending.filter(x => x !== p); hooks.onError && hooks.onError('too_large', p); continue; }
             throw error;
           }
-          pending.shift(); idb.set(PKEY, pending); persist();
+          // Remove exactly this write: a newer edit made while it was sending stays queued.
+          pending = pending.filter(x => x !== p); idb.set(PKEY, pending); persist();
         }
         status('synced');
       } catch (e) {
@@ -136,7 +187,7 @@
       doc(path) {
         const [c, id] = path.split('/');
         return {
-          async set(data) { applyLocal('set', c, id, data); notify(c); queue('set', c, id, data); },
+          async set(data) { const base = col(c).get(id); applyLocal('set', c, id, data); notify(c); queue('set', c, id, data, base); },
           async delete() { applyLocal('del', c, id); notify(c); queue('del', c, id); },
           onSnapshot(cb) { const l = { c, id, cb }; listeners.add(l); if (loaded) cb(snapFor(l)); return () => listeners.delete(l); },
         };
@@ -190,5 +241,5 @@
     };
   }
 
-  root.FL = { makeDb, makeAI, idb };
+  root.FL = { makeDb, makeAI, idb, merge3 };
 })(this);

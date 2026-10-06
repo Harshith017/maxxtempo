@@ -1914,6 +1914,9 @@ function openExPicker(onPick, title='Add exercise', onBack=null){
   draw(); setTimeout(() => $('#xp_q')?.focus(), 50);
 }
 const SS_LETTERS = 'ABCDEFGH';
+// Above these a set is almost certainly a typo (the deadlift world record is about 500 kg).
+const MAX_KG = 500, MAX_REPS = 300, LONG_WORKOUT_MIN = 240;
+const setProblem = (kg, reps) => kg > MAX_KG ? `${n1(kg)} kg looks like a typo. Check it and tick again.` : reps > MAX_REPS ? `${n0(reps)} reps looks like a typo. Check it and tick again.` : kg < 0 || reps < 0 ? 'Weights and reps can’t be negative.' : '';
 function wkPanel(){
   const w = S.workout;
   if (!w) {
@@ -1966,7 +1969,15 @@ function wkFinishNow(){
   // A superset needs two exercises; one left on its own (the other had no sets done) is a normal exercise.
   for (const e of ex) if (e.superset && ex.filter(x=>x.superset===e.superset).length < 2) e.superset = null;
   if (!ex.length) { if (confirm('No sets are ticked off. Discard this workout?')) { S.workout = null; wkSave(); render(); } return; }
-  const date = w.date || localDate(), time = new Date(w.started).toTimeString().slice(0,5), minutes = Math.max(1, Math.round((Date.now()-Date.parse(w.started))/60000));
+  const date = w.date || localDate(), time = new Date(w.started).toTimeString().slice(0,5);
+  let minutes = Math.max(1, Math.round((Date.now()-Date.parse(w.started))/60000));
+  // Left open for hours (forgot to tap Finish)? Ask how long the session really was.
+  if (minutes > LONG_WORKOUT_MIN) {
+    const guess = Math.min(120, Math.max(20, ex.reduce((a,e)=>a+e.sets.length,0) * 3));
+    const ans = prompt(`This workout has been open for ${Math.floor(minutes/60)} h ${pad(minutes%60)} min. How many minutes did you actually train?`, String(guess));
+    if (ans === null) return;
+    minutes = Math.max(1, Math.min(LONG_WORKOUT_MIN, Math.round(Number(ans)) || guess));
+  }
   const out = ex.map(e => { const x = {id:uid(), name:e.name, muscle_group:e.group, sets:e.sets.map(s=>({weight:Number(s.weight)||0, reps:Number(s.reps)||0, ...(s.type!=='normal'?{type:s.type}:{}), ...(s.rpe?{rpe:Number(s.rpe)}:{})})), time, source:'workout', workout_id:w.id, ...(e.superset?{superset:e.superset}:{})};
     x.kcal = exerciseKcal(x, date); return x; });
   const work = out.flatMap(e=>e.sets.filter(s=>s.type!=='warmup')), volume = work.reduce((a,s)=>a+s.weight*s.reps,0);
@@ -2052,6 +2063,7 @@ function wkAction(a, b){
       if (s.weight==='' && p && p.weight>0) s.weight = String(p.weight);
       if (s.reps==='' && p) s.reps = String(p.reps);
       if (!(Number(s.reps)>0)) { toast('Type the reps first.'); break; }
+      { const bad = setProblem(Number(s.weight)||0, Number(s.reps)); if (bad) { toast(bad); render(); break; } }
       s.done = true;
       // Live PR: heavier than ever, or a better estimated 1RM (or more reps, bodyweight).
       const hist = buildSessions().get(exKey(e.name));
@@ -2464,7 +2476,7 @@ function openLabel(code, name, why){
     const f = {name:nm, aliases:code?[code]:[], units, per, src:code?'group':'label', barcode:code||null};
     if (code && SB && S.user) {
       const { error } = await SB.from('shared_foods').upsert({code, name:nm, per, units, source:'label', added_by:S.user.id, updated_at:new Date().toISOString()});
-      if (error) console.warn('shared_foods', error.message);
+      if (error) { console.warn('shared_foods', error.message); if (/per_sane|check constraint/i.test(error.message||'')) toast('Logged for you. Those label numbers look off, so they weren’t shared with the group.'); }
     }
     openPortion(f, code ? `Barcode ${esc(code)} · saved for everyone in MaxxTempo` : 'From the label');
   };
@@ -3010,6 +3022,7 @@ function openExEdit(id){
       if ((m=s.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)$/))) sets.push({weight:+m[1],reps:+m[2]});
       else if ((m=s.match(/^(\d+)$/))) sets.push({weight:0,reps:+m[1]});
       else { $('#ee_err').textContent=`Couldn’t read “${s}”. Write it as weight x reps, like 60x8.`; return; } }
+    for (const x of sets) { const bad = setProblem(x.weight, x.reps); if (bad) { $('#ee_err').textContent = bad.replace(' and tick again', ''); return; } }
     writeDay(S.date, day => { const x=day.exercises.find(y=>y.id===id); if(!x) return;
       x.name=titleCase($('#ee_name').value)||x.name; x.sets=sets; x.muscle_group=$('#ee_group').value; x.duration_min=num($('#ee_min').value,600)||null;
       x.kcal = exerciseKcal(x, S.date); });
@@ -3264,6 +3277,7 @@ document.addEventListener('click', ev => {
     case 'faceIdLater': try { localStorage.setItem('mt:faceid-later:'+S.user.id, '1'); } catch {} render(); break;
     case 'recheckMember': if (S.pendingUser) startFor(S.pendingUser); break;
     case 'memberSet': setMember(b.dataset.id, b.dataset.s); break;
+    case 'memberAdmin': setMemberAdmin(b.dataset.id, b.dataset.on==='1', b.dataset.name||'this member'); break;
     case 'reviewPeople': S.openFolds.add('s-people'); setView('profile'); loadMembers(); break;
     case 'authBack': S.auth={step:'email', email:S.auth.email, msg:'', busy:false}; render(); break;
     case 'signOut': if (confirm(S.db&&S.db.pendingCount() ? `Sign out? ${S.db.pendingCount()} change(s) haven’t synced yet and will be lost.` : 'Sign out on this device? Your data stays in your account.')) signOut(); break;
@@ -3526,6 +3540,7 @@ async function accessRequest(){
   catch (e) { if (!['rate_limited','bad_email'].includes(e?.code) && !(await serverReachable())) { S.auth={step:'request', email, busy:false, err:true, msg:blockedMsg()}; render(); return; }
     S.auth={step:'request', email, busy:false, err:true, msg: e?.code==='rate_limited' ? 'Lots of requests right now. Try again in an hour.' : e?.code==='offline' ? 'You’re offline. Connect to the internet and try again.' : e?.code==='bad_email' ? 'That email address doesn’t look right.' : 'Couldn’t send the request. Try again.'}; render(); return; }
   if (r.state==='has_account') { S.auth={step:'email', email, busy:false, err:true, msg:HAS_ACCOUNT}; render(); return; }
+  if (r.state==='requested_elsewhere') { S.auth={step:'request', email, busy:false, err:true, msg:'This email already has a request waiting on another phone. Finish there, or ask the owner to sort it out.'}; render(); return; }
   if (r.state==='declined') { S.auth={step:'email', email, busy:false, err:true, msg:'This email wasn’t approved. Ask the owner if that’s a mistake.'}; render(); return; }
   setClaim({email, key:r.key, at:Date.now()}); S.auth={step:'waiting', email, busy:false, msg:''}; render();
   if (r.state==='approved') accessCheck(true); else pollAccess();
@@ -3806,7 +3821,7 @@ function feedHtml(){
 /* ---------- approvals (owner only) ---------- */
 async function loadMembers(){
   if (!S.isAdmin || !SB) return;
-  const { data, error } = await SB.from('members').select('user_id,email,name,provider,status,is_admin,requested_at,decided_at').order('requested_at', {ascending:false});
+  const { data, error } = await SB.from('members').select('user_id,email,name,provider,status,is_admin,primary_owner,requested_at,decided_at').order('requested_at', {ascending:false});
   if (!error) { S.members = data||[]; render(); }
 }
 async function setMember(id, status){
@@ -3816,11 +3831,23 @@ async function setMember(id, status){
   if (error) { toast('Couldn’t update that. Try again.'); return; }
   toast(status==='approved' ? `Approved ${m.name||m.email}` : `Declined ${m.name||m.email}`); loadMembers();
 }
+// Co-owners can approve and decline members and make temporary passwords, so someone
+// can still let people in if the main owner can't. Only the main owner adds or removes them.
+async function setMemberAdmin(id, on, name){
+  if (!confirm(on ? `Make ${name} a co-owner? They’ll be able to approve and remove members and make temporary passwords, but not change owners.` : `Remove ${name} as co-owner?`)) return;
+  const { error } = await SB.rpc('set_member_admin', { p_user:id, p_admin:on });
+  if (error) { toast('Couldn’t change that. Try again.'); return; }
+  toast(on ? `${name} is now a co-owner` : `${name} is no longer a co-owner`); loadMembers();
+}
 function peopleFold(){
   const ms = S.members||[], pend = ms.filter(x=>x.status==='pending'), appr = ms.filter(x=>x.status==='approved'), dec = ms.filter(x=>x.status==='declined');
-  const who = x => `<div><div class="nm">${esc(x.name||x.email||'Unknown')}${x.is_admin?' <span class="tag">you</span>':''}</div><div class="sub">${esc(x.email||'')}${x.provider?` · ${esc(x.provider==='email'?'email':x.provider[0].toUpperCase()+x.provider.slice(1))}`:''} · ${esc(fmtDate((x.decided_at||x.requested_at).slice(0,10),{day:'numeric',month:'short'}))}</div></div>`;
+  const me = S.user?.id, iAmMain = ms.some(x=>x.user_id===me && x.primary_owner);
+  const role = x => x.primary_owner ? 'owner' : x.is_admin ? 'co-owner' : '';
+  const who = x => `<div><div class="nm">${esc(x.name||x.email||'Unknown')}${role(x)?` <span class="tag">${role(x)}</span>`:''}${x.user_id===me?' <span class="muted small">(you)</span>':''}</div><div class="sub">${esc(x.email||'')}${x.provider?` · ${esc(x.provider==='email'?'email':x.provider[0].toUpperCase()+x.provider.slice(1))}`:''} · ${esc(fmtDate((x.decided_at||x.requested_at).slice(0,10),{day:'numeric',month:'short'}))}</div></div>`;
   return `${pend.length ? `<h3>Waiting for you</h3>${pend.map(x=>`<div class="item">${who(x)}<span></span><div class="acts"><button class="approve" data-action="memberSet" data-id="${x.user_id}" data-s="approved">Approve</button><button data-action="memberSet" data-id="${x.user_id}" data-s="declined">Decline</button></div></div>`).join('')}` : '<div class="muted small">Nobody is waiting. When someone signs in for the first time, they appear here for you to approve.</div>'}
-    <h3>Approved</h3>${appr.map(x=>`<div class="item">${who(x)}<span></span><div class="acts">${x.is_admin?'':`<button data-action="tempPw" data-id="${x.user_id}" data-name="${esc(x.name||x.email||'')}" aria-label="Set a temporary password for ${esc(x.name||x.email||'')}">Password</button><button data-action="memberSet" data-id="${x.user_id}" data-s="declined">Remove</button>`}</div></div>`).join('')}
+    <h3>Approved</h3>${appr.map(x=>`<div class="item">${who(x)}<span></span><div class="acts">${x.is_admin
+      ? (iAmMain && !x.primary_owner ? `<button data-action="memberAdmin" data-id="${x.user_id}" data-on="0" data-name="${esc(x.name||x.email||'')}">Remove co-owner</button>` : '')
+      : `<button data-action="tempPw" data-id="${x.user_id}" data-name="${esc(x.name||x.email||'')}" aria-label="Set a temporary password for ${esc(x.name||x.email||'')}">Password</button>${iAmMain?`<button data-action="memberAdmin" data-id="${x.user_id}" data-on="1" data-name="${esc(x.name||x.email||'')}">Make co-owner</button>`:''}<button data-action="memberSet" data-id="${x.user_id}" data-s="declined">Remove</button>`}</div></div>`).join('')}
     <div class="muted small">Forgot their password? Tap Password to make a temporary one, and give it to them privately. They choose their own next time they sign in.</div>
     ${dec.length?`<h3>Declined</h3>${dec.map(x=>`<div class="item">${who(x)}<span></span><div class="acts"><button data-action="memberSet" data-id="${x.user_id}" data-s="approved">Approve</button></div></div>`).join('')}`:''}
     <div class="row"><button class="btn ghost sm" data-action="reviewPeople">Refresh</button></div>`;

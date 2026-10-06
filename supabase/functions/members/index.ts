@@ -45,8 +45,10 @@ Deno.serve(async (req) => {
     if (body.action === "temp-password") {
       const target = String(body.user_id ?? "");
       if (!/^[0-9a-f-]{36}$/i.test(target) || target === user.id) return fail(400, "bad_request");
-      const { data: m } = await admin.from("members").select("status").eq("user_id", target).maybeSingle();
+      const { data: m } = await admin.from("members").select("status,is_admin").eq("user_id", target).maybeSingle();
       if (!m) return fail(404, "not_found");
+      // Never for an owner: with co-owners, one could otherwise take over another's account.
+      if (m.is_admin) return fail(403, "not_allowed");
       const { data: u } = await admin.auth.admin.getUserById(target);
       if (!u?.user) return fail(404, "not_found");
       const password = tempPassword();
