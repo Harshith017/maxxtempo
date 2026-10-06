@@ -3110,7 +3110,7 @@ function render(){
   if (!S.user) { $('#main').innerHTML = authView(); document.querySelector('.tabs').hidden = true; document.querySelector('.hright').hidden = true; $('#menu').hidden = true; return; }
   document.querySelector('.tabs').hidden = false; document.querySelector('.hright').hidden = false;
   if (S.sync==='offline') html += `<div class="banner" style="margin-bottom:16px">You’re offline. Everything you log is saved on this device and syncs when you’re back online.</div>`;
-  else if (S.sync==='error') html += `<div class="banner" style="margin-bottom:16px">Couldn’t sync with the server. Your changes are safe on this device; retrying.</div>`;
+  else if (S.sync==='error') html += `<div class="banner" style="margin-bottom:16px">${S.netBlocked ? esc(blockedMsg()) + ' Your logs are safe on this device and sync once it’s fixed.' : 'Couldn’t sync with the server. Your changes are safe on this device; retrying.'}</div>`;
   if (S.dbState==='connecting') html += `<div class="muted small" style="margin-bottom:12px">Loading your log…</div>`;
   if (!isToday && S.view!=='setup') html += `<div class="pastbar"><span>Viewing <b>${esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'short'}))}</b></span><span class="spacer"></span><button class="linkbtn" data-action="goToday">Back to today</button></div>`;
   html += S.view==='setup'&&S.setup?viewSetup():S.view==='gym'?viewGym():S.view==='trends'?viewTrends():S.view==='coach'||S.view==='health'?viewProfile():S.view==='profile'?viewProfile():viewToday();
@@ -3487,6 +3487,19 @@ async function pwnedPassword(password){
   } catch { return false; }
 }
 const PWNED_MSG = 'That password has shown up in a data breach, so it’s easy to guess. Choose a different one.';
+/* Since Feb 2026 Jio, Airtel and ACT block *.supabase.co by DNS in India, so a request
+   that never gets an answer may be the network, not the person. Check with a plain
+   request (no-cors: it only fails if the server can't be reached at all). */
+async function serverReachable(){
+  if (!navigator.onLine) return true;   // just offline: the usual message covers it
+  try { const c = new AbortController(), t = setTimeout(() => c.abort(), 6000);
+    await fetch(FL_CONFIG.SUPABASE_URL.replace(/\/$/,'') + '/auth/v1/health', {mode:'no-cors', cache:'no-store', signal:c.signal}); clearTimeout(t); return true; }
+  catch { return false; }
+}
+const blockedMsg = () => /iPhone|iPad/.test(navigator.userAgent)
+  ? 'Your network is blocking MaxxTempo’s server (Jio, Airtel and ACT do this in India). Fix: install Cloudflare’s free “1.1.1.1” app and turn it on, or use a different Wi-Fi. Then try again.'
+  : 'Your network is blocking MaxxTempo’s server (Jio, Airtel and ACT do this in India). Fix: open Settings → Network & internet (Samsung: Connections → More connection settings) → Private DNS → Private DNS provider hostname → type dns.google → Save. Then try again.';
+async function netFailMsg(fallback){ return (await serverReachable()) ? fallback : blockedMsg(); }
 async function authPassword(){
   const { email, password } = authCreds(), bad = authCheck(email, password, 1);
   if (bad) { S.auth={...S.auth, email, msg:bad, err:true}; render(); return; }
@@ -3495,7 +3508,7 @@ async function authPassword(){
   if (error) { S.auth={step:'email', email, busy:false, err:true, msg:
     /confirm/i.test(error.message) ? 'Confirm your email first: tap the link we sent you, then sign in.' :
     /invalid/i.test(error.message) ? `Wrong password for ${email}, or that email has no account. Check the email your phone filled in. Forgot your password? Ask the owner for a temporary one.` :
-    'Couldn’t sign in. Check your connection and try again.' }; render(); }
+    await netFailMsg(`Couldn’t sign in. Check your connection and try again. (${error.message||error.name||'no answer'})`) }; render(); }
 }
 /* ---------- joining without email (supabase/functions/access) ----------
    A new person types their email; the owner approves; this phone is then signed in
@@ -3510,7 +3523,8 @@ async function accessRequest(){
   S.auth={step:'request', email, busy:true, msg:''}; render();
   let r;
   try { r = await fnCall('access', 'request', {email}); }
-  catch (e) { S.auth={step:'request', email, busy:false, err:true, msg: e?.code==='rate_limited' ? 'Lots of requests right now. Try again in an hour.' : e?.code==='offline' ? 'You’re offline. Connect to the internet and try again.' : e?.code==='bad_email' ? 'That email address doesn’t look right.' : 'Couldn’t send the request. Try again.'}; render(); return; }
+  catch (e) { if (!['rate_limited','bad_email'].includes(e?.code) && !(await serverReachable())) { S.auth={step:'request', email, busy:false, err:true, msg:blockedMsg()}; render(); return; }
+    S.auth={step:'request', email, busy:false, err:true, msg: e?.code==='rate_limited' ? 'Lots of requests right now. Try again in an hour.' : e?.code==='offline' ? 'You’re offline. Connect to the internet and try again.' : e?.code==='bad_email' ? 'That email address doesn’t look right.' : 'Couldn’t send the request. Try again.'}; render(); return; }
   if (r.state==='has_account') { S.auth={step:'email', email, busy:false, err:true, msg:HAS_ACCOUNT}; render(); return; }
   if (r.state==='declined') { S.auth={step:'email', email, busy:false, err:true, msg:'This email wasn’t approved. Ask the owner if that’s a mistake.'}; render(); return; }
   setClaim({email, key:r.key, at:Date.now()}); S.auth={step:'waiting', email, busy:false, msg:''}; render();
@@ -3586,6 +3600,7 @@ async function authFaceId(){
       n==='unknown_passkey' ? `That ${b} sign-in was removed. Sign in with email or Google, then set it up again in ⚙︎ Settings.` :
       n==='not_approved' ? 'Your account is waiting for the owner’s approval.' :
       n==='offline' ? 'You’re offline. Connect to the internet and try again.' : 'Couldn’t sign in. Try again, or use email.'};
+    if (!/NotAllowedError|AbortError|unknown_passkey|not_approved/.test(n||'')) S.auth.msg = await netFailMsg(S.auth.msg);
   }
   render();
 }
@@ -3855,7 +3870,7 @@ async function startFor(user){
   if (S.isAdmin) loadMembers();
   loadPasskeys(); loadBoard(); loadFeed(); loadHealthSync(); loadData();
   const db = FL.makeDb(SB, user.id, {
-    onStatus: st => { if (S.sync!==st) { S.sync = st; render(); } },
+    onStatus: st => { if (S.sync!==st) { S.sync = st; render(); if (st==='error') serverReachable().then(ok => { S.netBlocked = !ok; render(); }); else if (st==='synced') S.netBlocked = false; } },
     onError: code => { if (code==='too_large') toast('One change was too large to sync and was skipped.'); },
   });
   S.db = db;
