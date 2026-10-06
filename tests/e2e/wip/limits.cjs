@@ -1,0 +1,25 @@
+const { chromium } = require('/opt/node22/lib/node_modules/playwright'); const fs=require('fs');
+const stub = fs.readFileSync(__dirname+'/stub3.js','utf8'); const seed = JSON.parse(fs.readFileSync(__dirname+'/seed.json','utf8'));
+const out=[]; const ok=(n,p,i='')=>out.push(`${p?'PASS':'FAIL'}  ${n}${i?'  — '+i:''}`);
+(async()=>{ const b=await chromium.launch(); const ctx=await b.newContext({viewport:{width:390,height:844}}); const p=await ctx.newPage(); const errs=[]; p.on('pageerror',e=>errs.push(e.message)); p.on('dialog', d=>{ window.__lastPrompt = d.message(); d.type()==='prompt'?d.accept(process.env.ANS||'75'):d.accept(); });
+  await p.addInitScript(`window.__SEED__=${JSON.stringify(seed)};`);
+  await p.route(/functions\/v1\//, r=>r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:'{"ok":true,"ready":true,"usage":{"count":0,"cap":30},"passkeys":[],"connected":false}'}));
+  await p.route(/^https:\/\/(?!cdn\.jsdelivr)(?!.*functions\/v1)/, r=>r.abort());
+  await p.route(/cdn\.jsdelivr\.net\/npm\/@supabase/, r=>r.fulfill({contentType:'application/javascript', body:stub}));
+  await p.route(/localhost:8765\/(index\.html)?(\?.*)?$/, async r => { const res = await fetch('http://localhost:8765/index.html'); r.fulfill({status:200, contentType:'text/html', body:(await res.text()).replace(/ integrity="sha384-Rj26[^"]*"/,'')}); });
+  await p.goto('http://localhost:8765/',{waitUntil:'load'}); await p.waitForTimeout(2000);
+  await p.click('.tab[data-view=gym]'); await p.waitForTimeout(400); await p.click('[data-action=wkStart]'); await p.waitForTimeout(300);
+  await p.click('[data-action=wkAddEx]'); await p.waitForTimeout(300); await p.fill('#xp_q','bench'); await p.waitForTimeout(300); await p.click('#xp_res .exrow'); await p.waitForTimeout(300);
+  const tick = async (kg, reps) => { await (await p.$$('[data-wk=weight]'))[0].fill(String(kg)); await (await p.$$('[data-wk=reps]'))[0].fill(String(reps)); await (await p.$$('.wdone'))[0].click(); await p.waitForTimeout(250); };
+  await tick(800, 5); ok('800 kg is refused as a typo', (await p.$$('.wdone.on')).length===0 && /800 kg looks like a typo/.test(await p.textContent('#toast')), await p.textContent('#toast'));
+  await tick(60, 999); ok('999 reps is refused as a typo', (await p.$$('.wdone.on')).length===0 && /999 reps looks like a typo/.test(await p.textContent('#toast')));
+  await tick(60, 8); ok('60 kg × 8 ticks normally', (await p.$$('.wdone.on')).length===1);
+  // pretend the workout was left open for 6 hours
+  await p.evaluate(()=>{ const w = JSON.parse(localStorage.getItem('mt:workout')); w.started = new Date(Date.now()-6*3600e3).toISOString(); localStorage.setItem('mt:workout', JSON.stringify(w)); });
+  await p.reload(); await p.waitForTimeout(2200); await p.click('.tab[data-view=gym]'); await p.waitForTimeout(400);
+  let msg = ''; p.removeAllListeners('dialog'); p.on('dialog', d => { msg = d.message(); d.type()==='prompt' ? d.accept('75') : d.accept(); });
+  await p.click('[data-action=wkFinish]'); await p.waitForTimeout(800);
+  ok('Finishing a 6-hour-old workout asks how long you trained', /open for 6 h/.test(msg), msg);
+  const sum = (await p.textContent('#dlg')).replace(/\s+/g,' ');
+  ok('Summary uses the answer (1h 15)', /1h 15/.test(sum), sum.slice(0,120));
+  ok('No page errors', !errs.length, errs.join(' | ')); console.log(out.join('\n')); await b.close(); })();

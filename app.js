@@ -2577,24 +2577,85 @@ function muscleSets(a, b){
   return out;
 }
 // A simple front and back figure; each muscle is shaded by how many sets it got.
-function bodyMap(sets){
-  const max = Math.max(1, ...Object.values(sets));
-  const f = m => { const v = sets[m]||0; return v ? `color-mix(in srgb, var(--accent) ${Math.round(25+75*v/max)}%, var(--surface-2))` : 'var(--surface-2)'; };
-  const t = m => `<title>${titleCase(m)}: ${n0(sets[m]||0)} set${Math.round(sets[m]||0)===1?'':'s'}</title>`;
-  const fig = (x, back) => `<g transform="translate(${x},0)">
-    <circle cx="50" cy="16" r="12" fill="var(--surface-2)" stroke="var(--line)"/>
-    <ellipse cx="27" cy="44" rx="11" ry="9" fill="${f('shoulders')}">${t('shoulders')}</ellipse><ellipse cx="73" cy="44" rx="11" ry="9" fill="${f('shoulders')}">${t('shoulders')}</ellipse>
-    ${back ? `<path d="M36 38 L64 38 L68 92 L32 92 Z" fill="${f('back')}">${t('back')}</path>`
-           : `<rect x="34" y="38" width="15" height="24" rx="6" fill="${f('chest')}">${t('chest')}</rect><rect x="51" y="38" width="15" height="24" rx="6" fill="${f('chest')}">${t('chest')}</rect>
-              <rect x="38" y="64" width="24" height="30" rx="7" fill="${f('core')}">${t('core')}</rect>`}
-    <ellipse cx="20" cy="66" rx="7" ry="15" fill="${f(back?'triceps':'biceps')}">${t(back?'triceps':'biceps')}</ellipse><ellipse cx="80" cy="66" rx="7" ry="15" fill="${f(back?'triceps':'biceps')}">${t(back?'triceps':'biceps')}</ellipse>
-    <ellipse cx="16" cy="98" rx="5" ry="13" fill="var(--surface-2)"/><ellipse cx="84" cy="98" rx="5" ry="13" fill="var(--surface-2)"/>
-    ${back ? `<ellipse cx="41" cy="104" rx="11" ry="10" fill="${f('glutes')}">${t('glutes')}</ellipse><ellipse cx="59" cy="104" rx="11" ry="10" fill="${f('glutes')}">${t('glutes')}</ellipse>` : ''}
-    <ellipse cx="41" cy="${back?136:124}" rx="10" ry="${back?20:26}" fill="${f('legs')}">${t('legs')}</ellipse><ellipse cx="59" cy="${back?136:124}" rx="10" ry="${back?20:26}" fill="${f('legs')}">${t('legs')}</ellipse>
-    <ellipse cx="41" cy="172" rx="7" ry="16" fill="${f('legs')}">${t('legs')}</ellipse><ellipse cx="59" cy="172" rx="7" ry="16" fill="${f('legs')}">${t('legs')}</ellipse>
-    <text x="50" y="200" text-anchor="middle" font-size="11" fill="var(--ink-3)">${back?'Back':'Front'}</text></g>`;
-  return `<svg class="bodymap" viewBox="0 0 220 206" role="img" aria-label="Sets per muscle">${fig(0,false)}${fig(115,true)}</svg>`;
+/* Body map: an anatomical front and back view. Each muscle is shaded with a highlight and a
+   soft shadow so it reads as rounded, and glows stronger the more sets its group got. */
+// Smooth closed (or open) path through points (Catmull-Rom -> cubic Bezier).
+function bmSmooth(pts, closed = true, t = 0.5) {
+  const n = pts.length, P = i => closed ? pts[(i + n) % n] : pts[Math.max(0, Math.min(n - 1, i))];
+  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  const last = closed ? n : n - 1;
+  for (let i = 0; i < last; i++) {
+    const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+    const c1 = [p1[0] + (p2[0] - p0[0]) * t / 3, p1[1] + (p2[1] - p0[1]) * t / 3];
+    const c2 = [p2[0] - (p3[0] - p1[0]) * t / 3, p2[1] - (p3[1] - p1[1]) * t / 3];
+    d += ` C${c1[0].toFixed(1)} ${c1[1].toFixed(1)} ${c2[0].toFixed(1)} ${c2[1].toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }
+  return d + (closed ? 'Z' : '');
 }
+const bmMir = pts => pts.map(([x, y]) => [-x, y]);
+// Body bmOutline, left half (x from the centre line), top of neck to crotch, arms out a little.
+const BM_OUT = [[-10,58],[-11,72],[-26,80],[-48,86],[-62,94],[-70,110],[-72,132],[-75,158],[-79,182],[-83,208],[-87,236],[-89,254],[-94,266],[-93,284],[-85,290],[-80,276],[-78,258],[-72,234],[-66,208],[-61,186],[-58,162],[-55,138],[-50,128],
+  [-48,146],[-43,172],[-39,198],[-44,224],[-47,250],[-46,286],[-41,322],[-40,340],[-42,362],[-36,388],[-29,400],[-33,412],[-14,416],[-13,401],[-14,376],[-17,346],[-14,318],[-10,286],[-4,262],[0,258]];
+const bmOutline = () => bmSmooth([...BM_OUT, ...bmMir(BM_OUT).reverse().slice(1)]);
+// Muscles: [group, side-left points]; drawn for both sides.
+const BM_FRONT = [
+  ['shoulders', [[-44,86],[-58,88],[-69,100],[-73,120],[-68,134],[-58,132],[-52,114],[-44,98]]],
+  ['chest',     [[-3,94],[-22,86],[-42,92],[-52,106],[-50,124],[-34,138],[-14,138],[-3,133]]],
+  ['biceps',    [[-55,134],[-67,132],[-74,148],[-75,168],[-68,182],[-59,178],[-55,158]]],
+  [null,        [[-60,186],[-76,186],[-84,214],[-88,246],[-80,252],[-70,228],[-62,206]]],          // forearm
+  ['core',      [[-3,140],[-15,139],[-16,158],[-3,160]]],
+  ['core',      [[-3,163],[-16,162],[-16,182],[-3,184]]],
+  ['core',      [[-3,187],[-16,186],[-15,207],[-3,209]]],
+  ['core',      [[-3,212],[-15,211],[-12,238],[-3,250]]],
+  ['core',      [[-19,142],[-36,140],[-44,150],[-41,176],[-38,200],[-42,222],[-22,238],[-19,206]]],   // obliques
+  ['legs',      [[-44,244],[-47,280],[-43,316],[-34,332],[-27,304],[-29,262]]],                    // outer quad
+  ['legs',      [[-28,258],[-25,296],[-22,322],[-14,334],[-11,308],[-15,280]]],                    // inner quad
+  ['legs',      [[-5,262],[-24,256],[-17,282],[-11,300],[-6,286]]],                                 // adductor
+  ['legs',      [[-39,346],[-42,368],[-36,394],[-28,395],[-25,368],[-28,348]]],                    // shin / calf
+  ['legs',      [[-18,348],[-23,370],[-19,392],[-14,394],[-12,364]]],
+];
+const BM_BACK = [
+  ['back',      [[0,62],[-12,70],[-40,85],[-30,96],[-14,110],[-8,140],[0,166]]],                     // traps
+  ['shoulders', [[-42,88],[-58,88],[-69,100],[-73,120],[-68,134],[-58,130],[-50,108]]],             // rear delts
+  ['back',      [[-14,112],[-32,100],[-50,106],[-52,134],[-44,170],[-30,198],[-14,190],[-9,150]]], // lats
+  ['back',      [[-3,168],[-12,166],[-20,196],[-18,224],[-4,230]]],                                // lower back
+  ['triceps',   [[-55,132],[-68,130],[-75,148],[-75,170],[-68,182],[-59,178],[-55,156]]],
+  [null,        [[-60,186],[-76,186],[-84,214],[-88,246],[-80,252],[-70,228],[-62,206]]],
+  ['glutes',    [[-2,230],[-24,222],[-45,234],[-47,262],[-31,277],[-6,272]]],
+  ['legs',      [[-44,276],[-45,302],[-40,330],[-30,334],[-27,304],[-29,280]]],                    // hamstrings
+  ['legs',      [[-25,280],[-24,316],[-16,332],[-8,302],[-9,284]]],
+  ['legs',      [[-38,344],[-42,366],[-33,384],[-27,364],[-28,344]]],                              // calves
+  ['legs',      [[-25,344],[-25,374],[-18,386],[-13,362],[-15,344]]],
+];
+function bmFigure(muscles, fill, label, sets, U) {
+  const title = g => g ? `<title>${titleCase(g)}: ${n0(sets[g]||0)} set${Math.round(sets[g]||0)===1?'':'s'}</title>` : '';
+  const parts = muscles.flatMap(([g, pts]) => [[g, pts], [g, bmMir(pts)]]).map(([g, pts]) => {
+    const d = bmSmooth(pts);
+    return `<g class="mus">${title(g)}<path d="${d}" style="fill:${fill(g)};stroke:var(--bm-line);stroke-width:.7"/><path d="${d}" fill="${U('Bulge')}"/></g>`;
+  }).join('');
+  return `<g filter="${U('Drop')}"><path d="${bmSmooth([[0,10],[15,15],[20,32],[17,48],[9,60],[0,63],[-9,60],[-17,48],[-20,32],[-15,15]])}" fill="${U('Skin')}" style="stroke:var(--bm-line);stroke-width:.7"/>
+      <path d="${bmOutline()}" fill="${U('Skin')}" style="stroke:var(--bm-line);stroke-width:.7"/><path d="${bmOutline()}" fill="${U('Edge')}"/></g>
+    ${parts}
+    <text x="0" y="440" text-anchor="middle" font-size="15" fill="var(--ink-3)">${label}</text>`;
+}
+let bmN = 0;
+function bodyMap(sets) {
+  const id = 'bm' + (++bmN), U = n => `url(#${id}${n})`;
+  const max = Math.max(1, ...Object.values(sets));
+  const fill = g => { const v = g ? sets[g] || 0 : 0;
+    return v ? `color-mix(in srgb, var(--bm-hot) ${Math.round(35 + 65 * v / max)}%, var(--bm-muscle))` : 'var(--bm-muscle)'; };
+  return `<svg class="bodymap" viewBox="-110 0 440 452" role="img" aria-label="Sets per muscle, front and back">
+    <defs>
+      <radialGradient id="${id}Skin" cx="0.42" cy="0.3" r="0.8"><stop offset="0" style="stop-color:var(--bm-skin-hi)"/><stop offset="1" style="stop-color:var(--bm-skin)"/></radialGradient>
+      <linearGradient id="${id}Edge" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#000" stop-opacity=".10"/><stop offset=".22" stop-color="#000" stop-opacity="0"/><stop offset=".78" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".14"/></linearGradient>
+      <radialGradient id="${id}Bulge" cx="0.38" cy="0.3" r="0.85"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset=".35" stop-color="#fff" stop-opacity=".08"/><stop offset=".75" stop-color="#000" stop-opacity=".06"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></radialGradient>
+      <filter id="${id}Drop" x="-30%" y="-10%" width="160%" height="130%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000" flood-opacity="0.18"/></filter>
+    </defs>
+    <g>${bmFigure(BM_FRONT, fill, 'Front', sets, U)}</g>
+    <g transform="translate(220,0)">${bmFigure(BM_BACK, fill, 'Back', sets, U)}</g>
+  </svg>`;
+}
+
 function monthStats(a, b){
   let days=0, sets=0, volume=0, minutes=0, prs=0; const ex = {}, mus = {};
   for (const [date,d] of S.days) { if (date<a || date>b || !trainedOn(d)) continue; days++;
