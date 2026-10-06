@@ -3407,9 +3407,11 @@ async function importData(file){
 let SB = null;
 function waitingView(){
   const u = S.pendingUser, m = S.memberInfo||{}, nm = (u.user_metadata?.full_name || u.user_metadata?.name || '').split(' ')[0];
-  if (m.status==='declined') return `<section class="panel setup"><h2>Access not approved</h2>
-    <p>${esc(u.email||'This account')} isn’t approved to use MaxxTempo. If you think that’s a mistake, ask the owner.</p>
-    <div class="row"><span class="spacer"></span><button class="btn ghost" data-action="signOut">Sign out</button></div></section>`;
+  // Often it's a second, mistyped email the phone saved and keeps filling in: say which one, and how out.
+  if (m.status==='declined') return `<section class="panel setup"><h2>This email isn’t approved</h2>
+    <p>You signed in as <b>${esc(u.email||'this account')}</b>, which isn’t approved to use MaxxTempo.</p>
+    <p class="muted">Have another email that is? Sign out and sign in with that one. If your phone keeps filling in this email, pick the other one from its suggestions or type it.</p>
+    <div class="row"><span class="spacer"></span><button class="btn" data-action="signOut">Sign out and use another email</button></div></section>`;
   return `<section class="panel setup"><h2>${nm?`Thanks, ${esc(nm)}!`:'Almost in'}</h2>
     <p>${m.status==='unknown' ? 'Couldn’t check your access. Check your connection and try again.' : `Your request to join has been sent. You’ll be let in as soon as the owner approves <b>${esc(u.email||'your account')}</b>. After that you sign in as normal, no approval needed again.`}</p>
     <div class="row"><button class="btn ghost" data-action="signOut">Sign out</button><span class="spacer"></span><button class="btn" data-action="recheckMember">Check again</button></div></section>`;
@@ -3438,7 +3440,7 @@ function authView(){
       ${window.PublicKeyCredential?`<button class="btn provider face" data-action="faceIdSignIn" ${a.busy?'disabled':''}><svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9.5v1M15 9.5v1M12 9.5v3.5h-1M9.5 15.5c1.4 1.2 3.6 1.2 5 0"/></svg><span>Sign in with ${bioName()}</span></button>`:''}
       ${FL_CONFIG.GOOGLE_SIGN_IN?`<button class="btn provider" data-action="authOAuth" data-p="google" ${a.busy?'disabled':''}><svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.6-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.5z"/></svg><span>Continue with Google</span></button>`:''}
     </div><div class="ordiv"><span>or use email</span></div>`:''}
-    <label class="field">Email<input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" value="${esc(a.email)}"></label>
+    <label class="field">Email<input id="authEmail" type="email" autocomplete="username" autocapitalize="off" spellcheck="false" placeholder="you@example.com" value="${esc(a.email)}"></label>
     <label class="field">Password<input id="authPass" type="password" autocomplete="current-password" placeholder="At least 8 characters"></label>
     <div class="row"><button class="linkbtn" data-action="forgotPw" style="padding-left:0">Forgot password?</button><span class="spacer"></span><button class="btn" data-action="authPassword" ${a.busy?'disabled':''}>${a.busy?'Working…':'Sign in'}</button></div>
     <div class="ordiv"><span>new here?</span></div>
@@ -3492,7 +3494,7 @@ async function authPassword(){
   const { error } = await SB.auth.signInWithPassword({ email, password });
   if (error) { S.auth={step:'email', email, busy:false, err:true, msg:
     /confirm/i.test(error.message) ? 'Confirm your email first: tap the link we sent you, then sign in.' :
-    /invalid/i.test(error.message) ? 'Wrong email or password. New here? Tap Request access. Forgot your password? Ask the owner for a temporary one.' :
+    /invalid/i.test(error.message) ? `Wrong password for ${email}, or that email has no account. Check the email your phone filled in. Forgot your password? Ask the owner for a temporary one.` :
     'Couldn’t sign in. Check your connection and try again.' }; render(); }
 }
 /* ---------- joining without email (supabase/functions/access) ----------
