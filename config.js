@@ -7,4 +7,8 @@ window.FL_CONFIG = {
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlkbXZsZWNwZGd0aXlqZWlrcGhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0MjMyOTIsImV4cCI6MjEwNTk5OTI5Mn0.eX2G--DGOTm2lJUriMKflHlYQzg2LVZiFPPLcXjyTrk',
   GOOGLE_SIGN_IN: false,   // true once Google sign-in is set up in Supabase (SETUP.md step 4)
   CLAUDE: true,            // false to hide Claude features until the edge function is deployed
+  // The Cloudflare Worker that relays to Supabase (cloudflare/README.md). Some Indian
+  // networks block supabase.co; when this is set, the app sends everything through it.
+  SUPABASE_PROXY_URL: '',
 };
+window.FL_CONFIG.API_URL = (window.FL_CONFIG.SUPABASE_PROXY_URL || window.FL_CONFIG.SUPABASE_URL).replace(/\/$/, '');

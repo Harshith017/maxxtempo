@@ -164,7 +164,7 @@
   const blobToB64 = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(b); });
 
   function makeAI(sb, cfg, hooks = {}) {
-    const url = cfg.SUPABASE_URL.replace(/\/$/, '') + '/functions/v1/claude';
+    const url = cfg.API_URL + '/functions/v1/claude';
     async function call(body, signal) {
       const { data: { session } } = await sb.auth.getSession();
       if (!session) throw { code: 'session_expired' };
