@@ -3493,7 +3493,7 @@ const PWNED_MSG = 'That password has shown up in a data breach, so it’s easy t
 async function serverReachable(){
   if (!navigator.onLine) return true;   // just offline: the usual message covers it
   try { const c = new AbortController(), t = setTimeout(() => c.abort(), 6000);
-    await fetch(FL_CONFIG.SUPABASE_URL.replace(/\/$/,'') + '/auth/v1/health', {mode:'no-cors', cache:'no-store', signal:c.signal}); clearTimeout(t); return true; }
+    await fetch(FL_CONFIG.API_URL + '/auth/v1/health', {mode:'no-cors', cache:'no-store', signal:c.signal}); clearTimeout(t); return true; }
   catch { return false; }
 }
 const blockedMsg = () => /iPhone|iPad/.test(navigator.userAgent)
@@ -3577,7 +3577,7 @@ const passkeyCall = (action, body) => fnCall('passkey', action, body);
 async function fnCall(fn, action, body = {}){
   const cfg = FL_CONFIG; let token = cfg.SUPABASE_ANON_KEY;
   const { data:{ session } } = await SB.auth.getSession(); if (session) token = session.access_token;
-  let res; try { res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, '') + '/functions/v1/' + fn, { method:'POST', headers:{ 'Content-Type':'application/json', apikey:cfg.SUPABASE_ANON_KEY, Authorization:'Bearer ' + token }, body:JSON.stringify({ action, ...body }) }); }
+  let res; try { res = await fetch(cfg.API_URL + '/functions/v1/' + fn, { method:'POST', headers:{ 'Content-Type':'application/json', apikey:cfg.SUPABASE_ANON_KEY, Authorization:'Bearer ' + token }, body:JSON.stringify({ action, ...body }) }); }
   catch { throw { code:'offline' }; }
   let out = null; try { out = await res.json(); } catch {}
   if (!res.ok || !out || !out.ok) throw { code:(out && out.code) || 'unavailable' };
@@ -3605,7 +3605,7 @@ async function authFaceId(){
   render();
 }
 /* ---------- Automatic Apple Health sync (iPhone Shortcut → supabase/functions/health-sync) ---------- */
-const hsUrl = () => FL_CONFIG.SUPABASE_URL.replace(/\/$/, '') + '/functions/v1/health-sync';
+const hsUrl = () => FL_CONFIG.API_URL + '/functions/v1/health-sync';
 async function loadHealthSync(){
   try { S.hsync = await fnCall('health-sync', 'status'); } catch { S.hsync = S.hsync || null; }
   render();
@@ -3912,7 +3912,9 @@ render();
 (async () => {
   const cfg = window.FL_CONFIG || {};
   if (!window.supabase || !/^https:\/\//.test(cfg.SUPABASE_URL||'') || /YOUR_/.test(cfg.SUPABASE_ANON_KEY||'YOUR_')) { render(); return; }
-  SB = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, { auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, flowType:'pkce' } });
+  // Through the Worker when set; the session key stays tied to the project, so nobody is signed out by the switch.
+  SB = window.supabase.createClient(cfg.API_URL, cfg.SUPABASE_ANON_KEY, { auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, flowType:'pkce',
+    storageKey:`sb-${new URL(cfg.SUPABASE_URL).hostname.split('.')[0]}-auth-token` } });
   const { data:{ session } } = await SB.auth.getSession();
   if (session?.user) startFor(session.user);
   else { const c = getClaim(); if (c) { S.auth={step:'waiting', email:c.email, msg:'', busy:false}; accessCheck(true); pollAccess(); } render(); }
