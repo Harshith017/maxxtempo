@@ -1,0 +1,10 @@
+import w from './worker.mjs';
+const seen = []; globalThis.fetch = async (req) => { seen.push({url:req.url, method:req.method, up:req.headers.get('upgrade'), key:req.headers.get('apikey'), body: req.body ? await req.text() : null}); return new Response('ok'); };
+const ok = (n,c,i='') => console.log(`${c?'PASS':'FAIL'}  ${n}${i?'  — '+i:''}`);
+let r = await w.fetch(new Request('https://maxxtempo-api.x.workers.dev/auth/v1/token?grant_type=password', {method:'POST', headers:{apikey:'k','content-type':'application/json'}, body:'{"email":"a"}'}));
+ok('Sign-in forwarded with query, headers and body', seen[0].url==='https://idmvlecpdgtiyjeikphi.supabase.co/auth/v1/token?grant_type=password' && seen[0].method==='POST' && seen[0].key==='k' && seen[0].body==='{"email":"a"}', JSON.stringify(seen[0]));
+await w.fetch(new Request('https://maxxtempo-api.x.workers.dev/rest/v1/docs?select=*'));
+await w.fetch(new Request('https://maxxtempo-api.x.workers.dev/realtime/v1/websocket?apikey=k&vsn=1.0.0', {headers:{Upgrade:'websocket'}}));
+ok('Database and realtime websocket forwarded', seen[1].url.endsWith('/rest/v1/docs?select=*') && seen[2].up==='websocket' && seen[2].url.includes('/realtime/v1/websocket'));
+const n = seen.length; r = await w.fetch(new Request('https://maxxtempo-api.x.workers.dev/../etc/passwd')); const r2 = await w.fetch(new Request('https://maxxtempo-api.x.workers.dev/'));
+ok('Anything else refused (404), nothing forwarded', r.status===404 && r2.status===404 && seen.length===n);

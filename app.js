@@ -1914,6 +1914,9 @@ function openExPicker(onPick, title='Add exercise', onBack=null){
   draw(); setTimeout(() => $('#xp_q')?.focus(), 50);
 }
 const SS_LETTERS = 'ABCDEFGH';
+// Above these a set is almost certainly a typo (the deadlift world record is about 500 kg).
+const MAX_KG = 500, MAX_REPS = 300, LONG_WORKOUT_MIN = 240;
+const setProblem = (kg, reps) => kg > MAX_KG ? `${n1(kg)} kg looks like a typo. Check it and tick again.` : reps > MAX_REPS ? `${n0(reps)} reps looks like a typo. Check it and tick again.` : kg < 0 || reps < 0 ? 'Weights and reps can’t be negative.' : '';
 function wkPanel(){
   const w = S.workout;
   if (!w) {
@@ -1966,7 +1969,15 @@ function wkFinishNow(){
   // A superset needs two exercises; one left on its own (the other had no sets done) is a normal exercise.
   for (const e of ex) if (e.superset && ex.filter(x=>x.superset===e.superset).length < 2) e.superset = null;
   if (!ex.length) { if (confirm('No sets are ticked off. Discard this workout?')) { S.workout = null; wkSave(); render(); } return; }
-  const date = w.date || localDate(), time = new Date(w.started).toTimeString().slice(0,5), minutes = Math.max(1, Math.round((Date.now()-Date.parse(w.started))/60000));
+  const date = w.date || localDate(), time = new Date(w.started).toTimeString().slice(0,5);
+  let minutes = Math.max(1, Math.round((Date.now()-Date.parse(w.started))/60000));
+  // Left open for hours (forgot to tap Finish)? Ask how long the session really was.
+  if (minutes > LONG_WORKOUT_MIN) {
+    const guess = Math.min(120, Math.max(20, ex.reduce((a,e)=>a+e.sets.length,0) * 3));
+    const ans = prompt(`This workout has been open for ${Math.floor(minutes/60)} h ${pad(minutes%60)} min. How many minutes did you actually train?`, String(guess));
+    if (ans === null) return;
+    minutes = Math.max(1, Math.min(LONG_WORKOUT_MIN, Math.round(Number(ans)) || guess));
+  }
   const out = ex.map(e => { const x = {id:uid(), name:e.name, muscle_group:e.group, sets:e.sets.map(s=>({weight:Number(s.weight)||0, reps:Number(s.reps)||0, ...(s.type!=='normal'?{type:s.type}:{}), ...(s.rpe?{rpe:Number(s.rpe)}:{})})), time, source:'workout', workout_id:w.id, ...(e.superset?{superset:e.superset}:{})};
     x.kcal = exerciseKcal(x, date); return x; });
   const work = out.flatMap(e=>e.sets.filter(s=>s.type!=='warmup')), volume = work.reduce((a,s)=>a+s.weight*s.reps,0);
@@ -2052,6 +2063,7 @@ function wkAction(a, b){
       if (s.weight==='' && p && p.weight>0) s.weight = String(p.weight);
       if (s.reps==='' && p) s.reps = String(p.reps);
       if (!(Number(s.reps)>0)) { toast('Type the reps first.'); break; }
+      { const bad = setProblem(Number(s.weight)||0, Number(s.reps)); if (bad) { toast(bad); render(); break; } }
       s.done = true;
       // Live PR: heavier than ever, or a better estimated 1RM (or more reps, bodyweight).
       const hist = buildSessions().get(exKey(e.name));
@@ -2464,7 +2476,7 @@ function openLabel(code, name, why){
     const f = {name:nm, aliases:code?[code]:[], units, per, src:code?'group':'label', barcode:code||null};
     if (code && SB && S.user) {
       const { error } = await SB.from('shared_foods').upsert({code, name:nm, per, units, source:'label', added_by:S.user.id, updated_at:new Date().toISOString()});
-      if (error) console.warn('shared_foods', error.message);
+      if (error) { console.warn('shared_foods', error.message); if (/per_sane|check constraint/i.test(error.message||'')) toast('Logged for you. Those label numbers look off, so they weren’t shared with the group.'); }
     }
     openPortion(f, code ? `Barcode ${esc(code)} · saved for everyone in MaxxTempo` : 'From the label');
   };
@@ -2565,24 +2577,85 @@ function muscleSets(a, b){
   return out;
 }
 // A simple front and back figure; each muscle is shaded by how many sets it got.
-function bodyMap(sets){
-  const max = Math.max(1, ...Object.values(sets));
-  const f = m => { const v = sets[m]||0; return v ? `color-mix(in srgb, var(--accent) ${Math.round(25+75*v/max)}%, var(--surface-2))` : 'var(--surface-2)'; };
-  const t = m => `<title>${titleCase(m)}: ${n0(sets[m]||0)} set${Math.round(sets[m]||0)===1?'':'s'}</title>`;
-  const fig = (x, back) => `<g transform="translate(${x},0)">
-    <circle cx="50" cy="16" r="12" fill="var(--surface-2)" stroke="var(--line)"/>
-    <ellipse cx="27" cy="44" rx="11" ry="9" fill="${f('shoulders')}">${t('shoulders')}</ellipse><ellipse cx="73" cy="44" rx="11" ry="9" fill="${f('shoulders')}">${t('shoulders')}</ellipse>
-    ${back ? `<path d="M36 38 L64 38 L68 92 L32 92 Z" fill="${f('back')}">${t('back')}</path>`
-           : `<rect x="34" y="38" width="15" height="24" rx="6" fill="${f('chest')}">${t('chest')}</rect><rect x="51" y="38" width="15" height="24" rx="6" fill="${f('chest')}">${t('chest')}</rect>
-              <rect x="38" y="64" width="24" height="30" rx="7" fill="${f('core')}">${t('core')}</rect>`}
-    <ellipse cx="20" cy="66" rx="7" ry="15" fill="${f(back?'triceps':'biceps')}">${t(back?'triceps':'biceps')}</ellipse><ellipse cx="80" cy="66" rx="7" ry="15" fill="${f(back?'triceps':'biceps')}">${t(back?'triceps':'biceps')}</ellipse>
-    <ellipse cx="16" cy="98" rx="5" ry="13" fill="var(--surface-2)"/><ellipse cx="84" cy="98" rx="5" ry="13" fill="var(--surface-2)"/>
-    ${back ? `<ellipse cx="41" cy="104" rx="11" ry="10" fill="${f('glutes')}">${t('glutes')}</ellipse><ellipse cx="59" cy="104" rx="11" ry="10" fill="${f('glutes')}">${t('glutes')}</ellipse>` : ''}
-    <ellipse cx="41" cy="${back?136:124}" rx="10" ry="${back?20:26}" fill="${f('legs')}">${t('legs')}</ellipse><ellipse cx="59" cy="${back?136:124}" rx="10" ry="${back?20:26}" fill="${f('legs')}">${t('legs')}</ellipse>
-    <ellipse cx="41" cy="172" rx="7" ry="16" fill="${f('legs')}">${t('legs')}</ellipse><ellipse cx="59" cy="172" rx="7" ry="16" fill="${f('legs')}">${t('legs')}</ellipse>
-    <text x="50" y="200" text-anchor="middle" font-size="11" fill="var(--ink-3)">${back?'Back':'Front'}</text></g>`;
-  return `<svg class="bodymap" viewBox="0 0 220 206" role="img" aria-label="Sets per muscle">${fig(0,false)}${fig(115,true)}</svg>`;
+/* Body map: an anatomical front and back view. Each muscle is shaded with a highlight and a
+   soft shadow so it reads as rounded, and glows stronger the more sets its group got. */
+// Smooth closed (or open) path through points (Catmull-Rom -> cubic Bezier).
+function bmSmooth(pts, closed = true, t = 0.5) {
+  const n = pts.length, P = i => closed ? pts[(i + n) % n] : pts[Math.max(0, Math.min(n - 1, i))];
+  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  const last = closed ? n : n - 1;
+  for (let i = 0; i < last; i++) {
+    const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+    const c1 = [p1[0] + (p2[0] - p0[0]) * t / 3, p1[1] + (p2[1] - p0[1]) * t / 3];
+    const c2 = [p2[0] - (p3[0] - p1[0]) * t / 3, p2[1] - (p3[1] - p1[1]) * t / 3];
+    d += ` C${c1[0].toFixed(1)} ${c1[1].toFixed(1)} ${c2[0].toFixed(1)} ${c2[1].toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }
+  return d + (closed ? 'Z' : '');
 }
+const bmMir = pts => pts.map(([x, y]) => [-x, y]);
+// Body bmOutline, left half (x from the centre line), top of neck to crotch, arms out a little.
+const BM_OUT = [[-10,58],[-11,72],[-26,80],[-48,86],[-62,94],[-70,110],[-72,132],[-75,158],[-79,182],[-83,208],[-87,236],[-89,254],[-94,266],[-93,284],[-85,290],[-80,276],[-78,258],[-72,234],[-66,208],[-61,186],[-58,162],[-55,138],[-50,128],
+  [-48,146],[-43,172],[-39,198],[-44,224],[-47,250],[-46,286],[-41,322],[-40,340],[-42,362],[-36,388],[-29,400],[-33,412],[-14,416],[-13,401],[-14,376],[-17,346],[-14,318],[-10,286],[-4,262],[0,258]];
+const bmOutline = () => bmSmooth([...BM_OUT, ...bmMir(BM_OUT).reverse().slice(1)]);
+// Muscles: [group, side-left points]; drawn for both sides.
+const BM_FRONT = [
+  ['shoulders', [[-44,86],[-58,88],[-69,100],[-73,120],[-68,134],[-58,132],[-52,114],[-44,98]]],
+  ['chest',     [[-3,94],[-22,86],[-42,92],[-52,106],[-50,124],[-34,138],[-14,138],[-3,133]]],
+  ['biceps',    [[-55,134],[-67,132],[-74,148],[-75,168],[-68,182],[-59,178],[-55,158]]],
+  [null,        [[-60,186],[-76,186],[-84,214],[-88,246],[-80,252],[-70,228],[-62,206]]],          // forearm
+  ['core',      [[-3,140],[-15,139],[-16,158],[-3,160]]],
+  ['core',      [[-3,163],[-16,162],[-16,182],[-3,184]]],
+  ['core',      [[-3,187],[-16,186],[-15,207],[-3,209]]],
+  ['core',      [[-3,212],[-15,211],[-12,238],[-3,250]]],
+  ['core',      [[-19,142],[-36,140],[-44,150],[-41,176],[-38,200],[-42,222],[-22,238],[-19,206]]],   // obliques
+  ['legs',      [[-44,244],[-47,280],[-43,316],[-34,332],[-27,304],[-29,262]]],                    // outer quad
+  ['legs',      [[-28,258],[-25,296],[-22,322],[-14,334],[-11,308],[-15,280]]],                    // inner quad
+  ['legs',      [[-5,262],[-24,256],[-17,282],[-11,300],[-6,286]]],                                 // adductor
+  ['legs',      [[-39,346],[-42,368],[-36,394],[-28,395],[-25,368],[-28,348]]],                    // shin / calf
+  ['legs',      [[-18,348],[-23,370],[-19,392],[-14,394],[-12,364]]],
+];
+const BM_BACK = [
+  ['back',      [[0,62],[-12,70],[-40,85],[-30,96],[-14,110],[-8,140],[0,166]]],                     // traps
+  ['shoulders', [[-42,88],[-58,88],[-69,100],[-73,120],[-68,134],[-58,130],[-50,108]]],             // rear delts
+  ['back',      [[-14,112],[-32,100],[-50,106],[-52,134],[-44,170],[-30,198],[-14,190],[-9,150]]], // lats
+  ['back',      [[-3,168],[-12,166],[-20,196],[-18,224],[-4,230]]],                                // lower back
+  ['triceps',   [[-55,132],[-68,130],[-75,148],[-75,170],[-68,182],[-59,178],[-55,156]]],
+  [null,        [[-60,186],[-76,186],[-84,214],[-88,246],[-80,252],[-70,228],[-62,206]]],
+  ['glutes',    [[-2,230],[-24,222],[-45,234],[-47,262],[-31,277],[-6,272]]],
+  ['legs',      [[-44,276],[-45,302],[-40,330],[-30,334],[-27,304],[-29,280]]],                    // hamstrings
+  ['legs',      [[-25,280],[-24,316],[-16,332],[-8,302],[-9,284]]],
+  ['legs',      [[-38,344],[-42,366],[-33,384],[-27,364],[-28,344]]],                              // calves
+  ['legs',      [[-25,344],[-25,374],[-18,386],[-13,362],[-15,344]]],
+];
+function bmFigure(muscles, fill, label, sets, U) {
+  const title = g => g ? `<title>${titleCase(g)}: ${n0(sets[g]||0)} set${Math.round(sets[g]||0)===1?'':'s'}</title>` : '';
+  const parts = muscles.flatMap(([g, pts]) => [[g, pts], [g, bmMir(pts)]]).map(([g, pts]) => {
+    const d = bmSmooth(pts);
+    return `<g class="mus">${title(g)}<path d="${d}" style="fill:${fill(g)};stroke:var(--bm-line);stroke-width:.7"/><path d="${d}" fill="${U('Bulge')}"/></g>`;
+  }).join('');
+  return `<g filter="${U('Drop')}"><path d="${bmSmooth([[0,10],[15,15],[20,32],[17,48],[9,60],[0,63],[-9,60],[-17,48],[-20,32],[-15,15]])}" fill="${U('Skin')}" style="stroke:var(--bm-line);stroke-width:.7"/>
+      <path d="${bmOutline()}" fill="${U('Skin')}" style="stroke:var(--bm-line);stroke-width:.7"/><path d="${bmOutline()}" fill="${U('Edge')}"/></g>
+    ${parts}
+    <text x="0" y="440" text-anchor="middle" font-size="15" fill="var(--ink-3)">${label}</text>`;
+}
+let bmN = 0;
+function bodyMap(sets) {
+  const id = 'bm' + (++bmN), U = n => `url(#${id}${n})`;
+  const max = Math.max(1, ...Object.values(sets));
+  const fill = g => { const v = g ? sets[g] || 0 : 0;
+    return v ? `color-mix(in srgb, var(--bm-hot) ${Math.round(35 + 65 * v / max)}%, var(--bm-muscle))` : 'var(--bm-muscle)'; };
+  return `<svg class="bodymap" viewBox="-110 0 440 452" role="img" aria-label="Sets per muscle, front and back">
+    <defs>
+      <radialGradient id="${id}Skin" cx="0.42" cy="0.3" r="0.8"><stop offset="0" style="stop-color:var(--bm-skin-hi)"/><stop offset="1" style="stop-color:var(--bm-skin)"/></radialGradient>
+      <linearGradient id="${id}Edge" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#000" stop-opacity=".10"/><stop offset=".22" stop-color="#000" stop-opacity="0"/><stop offset=".78" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".14"/></linearGradient>
+      <radialGradient id="${id}Bulge" cx="0.38" cy="0.3" r="0.85"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset=".35" stop-color="#fff" stop-opacity=".08"/><stop offset=".75" stop-color="#000" stop-opacity=".06"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></radialGradient>
+      <filter id="${id}Drop" x="-30%" y="-10%" width="160%" height="130%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000" flood-opacity="0.18"/></filter>
+    </defs>
+    <g>${bmFigure(BM_FRONT, fill, 'Front', sets, U)}</g>
+    <g transform="translate(220,0)">${bmFigure(BM_BACK, fill, 'Back', sets, U)}</g>
+  </svg>`;
+}
+
 function monthStats(a, b){
   let days=0, sets=0, volume=0, minutes=0, prs=0; const ex = {}, mus = {};
   for (const [date,d] of S.days) { if (date<a || date>b || !trainedOn(d)) continue; days++;
@@ -3010,6 +3083,7 @@ function openExEdit(id){
       if ((m=s.match(/^(\d+(?:\.\d+)?)\s*x\s*(\d+)$/))) sets.push({weight:+m[1],reps:+m[2]});
       else if ((m=s.match(/^(\d+)$/))) sets.push({weight:0,reps:+m[1]});
       else { $('#ee_err').textContent=`Couldn’t read “${s}”. Write it as weight x reps, like 60x8.`; return; } }
+    for (const x of sets) { const bad = setProblem(x.weight, x.reps); if (bad) { $('#ee_err').textContent = bad.replace(' and tick again', ''); return; } }
     writeDay(S.date, day => { const x=day.exercises.find(y=>y.id===id); if(!x) return;
       x.name=titleCase($('#ee_name').value)||x.name; x.sets=sets; x.muscle_group=$('#ee_group').value; x.duration_min=num($('#ee_min').value,600)||null;
       x.kcal = exerciseKcal(x, S.date); });
@@ -3264,6 +3338,7 @@ document.addEventListener('click', ev => {
     case 'faceIdLater': try { localStorage.setItem('mt:faceid-later:'+S.user.id, '1'); } catch {} render(); break;
     case 'recheckMember': if (S.pendingUser) startFor(S.pendingUser); break;
     case 'memberSet': setMember(b.dataset.id, b.dataset.s); break;
+    case 'memberAdmin': setMemberAdmin(b.dataset.id, b.dataset.on==='1', b.dataset.name||'this member'); break;
     case 'reviewPeople': S.openFolds.add('s-people'); setView('profile'); loadMembers(); break;
     case 'authBack': S.auth={step:'email', email:S.auth.email, msg:'', busy:false}; render(); break;
     case 'signOut': if (confirm(S.db&&S.db.pendingCount() ? `Sign out? ${S.db.pendingCount()} change(s) haven’t synced yet and will be lost.` : 'Sign out on this device? Your data stays in your account.')) signOut(); break;
@@ -3526,6 +3601,7 @@ async function accessRequest(){
   catch (e) { if (!['rate_limited','bad_email'].includes(e?.code) && !(await serverReachable())) { S.auth={step:'request', email, busy:false, err:true, msg:blockedMsg()}; render(); return; }
     S.auth={step:'request', email, busy:false, err:true, msg: e?.code==='rate_limited' ? 'Lots of requests right now. Try again in an hour.' : e?.code==='offline' ? 'You’re offline. Connect to the internet and try again.' : e?.code==='bad_email' ? 'That email address doesn’t look right.' : 'Couldn’t send the request. Try again.'}; render(); return; }
   if (r.state==='has_account') { S.auth={step:'email', email, busy:false, err:true, msg:HAS_ACCOUNT}; render(); return; }
+  if (r.state==='requested_elsewhere') { S.auth={step:'request', email, busy:false, err:true, msg:'This email already has a request waiting on another phone. Finish there, or ask the owner to sort it out.'}; render(); return; }
   if (r.state==='declined') { S.auth={step:'email', email, busy:false, err:true, msg:'This email wasn’t approved. Ask the owner if that’s a mistake.'}; render(); return; }
   setClaim({email, key:r.key, at:Date.now()}); S.auth={step:'waiting', email, busy:false, msg:''}; render();
   if (r.state==='approved') accessCheck(true); else pollAccess();
@@ -3806,7 +3882,7 @@ function feedHtml(){
 /* ---------- approvals (owner only) ---------- */
 async function loadMembers(){
   if (!S.isAdmin || !SB) return;
-  const { data, error } = await SB.from('members').select('user_id,email,name,provider,status,is_admin,requested_at,decided_at').order('requested_at', {ascending:false});
+  const { data, error } = await SB.from('members').select('user_id,email,name,provider,status,is_admin,primary_owner,requested_at,decided_at').order('requested_at', {ascending:false});
   if (!error) { S.members = data||[]; render(); }
 }
 async function setMember(id, status){
@@ -3816,11 +3892,23 @@ async function setMember(id, status){
   if (error) { toast('Couldn’t update that. Try again.'); return; }
   toast(status==='approved' ? `Approved ${m.name||m.email}` : `Declined ${m.name||m.email}`); loadMembers();
 }
+// Co-owners can approve and decline members and make temporary passwords, so someone
+// can still let people in if the main owner can't. Only the main owner adds or removes them.
+async function setMemberAdmin(id, on, name){
+  if (!confirm(on ? `Make ${name} a co-owner? They’ll be able to approve and remove members and make temporary passwords, but not change owners.` : `Remove ${name} as co-owner?`)) return;
+  const { error } = await SB.rpc('set_member_admin', { p_user:id, p_admin:on });
+  if (error) { toast('Couldn’t change that. Try again.'); return; }
+  toast(on ? `${name} is now a co-owner` : `${name} is no longer a co-owner`); loadMembers();
+}
 function peopleFold(){
   const ms = S.members||[], pend = ms.filter(x=>x.status==='pending'), appr = ms.filter(x=>x.status==='approved'), dec = ms.filter(x=>x.status==='declined');
-  const who = x => `<div><div class="nm">${esc(x.name||x.email||'Unknown')}${x.is_admin?' <span class="tag">you</span>':''}</div><div class="sub">${esc(x.email||'')}${x.provider?` · ${esc(x.provider==='email'?'email':x.provider[0].toUpperCase()+x.provider.slice(1))}`:''} · ${esc(fmtDate((x.decided_at||x.requested_at).slice(0,10),{day:'numeric',month:'short'}))}</div></div>`;
+  const me = S.user?.id, iAmMain = ms.some(x=>x.user_id===me && x.primary_owner);
+  const role = x => x.primary_owner ? 'owner' : x.is_admin ? 'co-owner' : '';
+  const who = x => `<div><div class="nm">${esc(x.name||x.email||'Unknown')}${role(x)?` <span class="tag">${role(x)}</span>`:''}${x.user_id===me?' <span class="muted small">(you)</span>':''}</div><div class="sub">${esc(x.email||'')}${x.provider?` · ${esc(x.provider==='email'?'email':x.provider[0].toUpperCase()+x.provider.slice(1))}`:''} · ${esc(fmtDate((x.decided_at||x.requested_at).slice(0,10),{day:'numeric',month:'short'}))}</div></div>`;
   return `${pend.length ? `<h3>Waiting for you</h3>${pend.map(x=>`<div class="item">${who(x)}<span></span><div class="acts"><button class="approve" data-action="memberSet" data-id="${x.user_id}" data-s="approved">Approve</button><button data-action="memberSet" data-id="${x.user_id}" data-s="declined">Decline</button></div></div>`).join('')}` : '<div class="muted small">Nobody is waiting. When someone signs in for the first time, they appear here for you to approve.</div>'}
-    <h3>Approved</h3>${appr.map(x=>`<div class="item">${who(x)}<span></span><div class="acts">${x.is_admin?'':`<button data-action="tempPw" data-id="${x.user_id}" data-name="${esc(x.name||x.email||'')}" aria-label="Set a temporary password for ${esc(x.name||x.email||'')}">Password</button><button data-action="memberSet" data-id="${x.user_id}" data-s="declined">Remove</button>`}</div></div>`).join('')}
+    <h3>Approved</h3>${appr.map(x=>`<div class="item">${who(x)}<span></span><div class="acts">${x.is_admin
+      ? (iAmMain && !x.primary_owner ? `<button data-action="memberAdmin" data-id="${x.user_id}" data-on="0" data-name="${esc(x.name||x.email||'')}">Remove co-owner</button>` : '')
+      : `<button data-action="tempPw" data-id="${x.user_id}" data-name="${esc(x.name||x.email||'')}" aria-label="Set a temporary password for ${esc(x.name||x.email||'')}">Password</button>${iAmMain?`<button data-action="memberAdmin" data-id="${x.user_id}" data-on="1" data-name="${esc(x.name||x.email||'')}">Make co-owner</button>`:''}<button data-action="memberSet" data-id="${x.user_id}" data-s="declined">Remove</button>`}</div></div>`).join('')}
     <div class="muted small">Forgot their password? Tap Password to make a temporary one, and give it to them privately. They choose their own next time they sign in.</div>
     ${dec.length?`<h3>Declined</h3>${dec.map(x=>`<div class="item">${who(x)}<span></span><div class="acts"><button data-action="memberSet" data-id="${x.user_id}" data-s="approved">Approve</button></div></div>`).join('')}`:''}
     <div class="row"><button class="btn ghost sm" data-action="reviewPeople">Refresh</button></div>`;

@@ -1,0 +1,27 @@
+const { chromium } = require('/opt/node22/lib/node_modules/playwright');
+const fs = require('fs');
+const out = process.argv[2], scheme = process.argv[3]||'dark';
+const stub = fs.readFileSync(__dirname + '/stub-supabase.js', 'utf8');
+const seed = JSON.parse(fs.readFileSync(__dirname + '/seed.json','utf8'));
+(async () => {
+  const b = await chromium.launch();
+  const ctx = await b.newContext({ viewport:{width:390,height:844}, colorScheme:scheme });
+  const p = await ctx.newPage(); const errs=[]; p.on('pageerror', e=>errs.push(e.message));
+  await p.addInitScript(`window.__SEED__=${JSON.stringify(seed)};`);
+  await p.route(/^https:\/\/(?!cdn\.jsdelivr)/, async r => { const u=r.request().url(); if (!/fonts\.(googleapis|gstatic)\.com/.test(u)) return r.abort();
+    try { const res=await fetch(u, {headers:{'user-agent':r.request().headers()['user-agent']}}); const hd={}; res.headers.forEach((v,k)=>{ if(!/encoding|length/.test(k)) hd[k]=v; }); hd['access-control-allow-origin']='*'; r.fulfill({status:res.status, headers:hd, body:Buffer.from(await res.arrayBuffer())}); } catch { r.abort(); } });
+  await p.route(/cdn\.jsdelivr\.net\/npm\/@supabase/, r => r.fulfill({ contentType:'application/javascript', body: stub }));
+  await p.route(/supabase\.co\/functions/, r => r.fulfill({ contentType:'application/json', body: JSON.stringify({ ok:true, ready:true, usage:{count:3,cap:30} }) }));
+  await p.goto('http://localhost:8765/', { waitUntil:'load' }); await p.waitForTimeout(1200); await p.evaluate(()=>document.fonts.ready); console.log('Archivo loaded:', await p.evaluate(()=>document.fonts.check('600 16px Archivo')));
+  const shot = async (n, full=false) => { await p.screenshot({ path:`${out}/${n}.png`, fullPage:full }); };
+  await p.fill('#logText', '400 g chicken breast, 3 roti, 2 cups rice, 1 katori dal, 2 bananas, 3 litres water'); await p.click('[data-action=log]'); await p.waitForTimeout(600);
+  await p.evaluate(()=>window.scrollTo(0,0)); await shot('today'); await p.evaluate(()=>window.scrollTo(0,document.body.scrollHeight)); await p.waitForTimeout(150); await shot('today-bottom'); await p.evaluate(()=>window.scrollTo(0,0));
+  await p.click('[data-fold=d-food] summary'); await p.click('[data-fold=d-quick] summary'); await p.waitForTimeout(150);
+  await p.evaluate(()=>window.scrollTo(0,500)); await shot('today-mid');
+  await p.click('.tab[data-view=gym]'); await p.waitForTimeout(300); await p.click('.excell >> nth=0'); await p.evaluate(()=>window.scrollTo(0,400)); await p.waitForTimeout(150); await shot('train');
+  await p.click('.tab[data-view=trends]'); await p.waitForTimeout(300); await shot('trends'); await p.evaluate(()=>window.scrollTo(0,650)); await p.waitForTimeout(150); await shot('trends2');
+  await p.click('[data-fold=t-micros] summary'); await p.evaluate(()=>window.scrollTo(0,1500)); await p.waitForTimeout(150); await shot('trends-micros');
+  await p.click('.tab[data-view=profile]'); await p.waitForTimeout(300); await p.click('[data-fold=p-goals] summary'); await p.waitForTimeout(150); await shot('profile');
+  await p.click('#menuBtn'); await p.waitForTimeout(200); await shot('menu');
+  console.log(scheme, 'errors', errs); await b.close();
+})();

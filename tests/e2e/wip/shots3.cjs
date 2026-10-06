@@ -1,0 +1,13 @@
+const { chromium } = require('/opt/node22/lib/node_modules/playwright'); const fs=require('fs');
+const stub = fs.readFileSync(__dirname+'/stub2.js','utf8'); const seed = JSON.parse(fs.readFileSync(__dirname+'/seed.json','utf8'));
+(async()=>{ const b=await chromium.launch(); const p=await (await b.newContext({viewport:{width:390,height:844}, colorScheme:'light'})).newPage();
+  await p.addInitScript(`window.__SEED__=${JSON.stringify(seed)};`);
+  await p.route(/functions\/v1\//, r=>r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:'{"ok":true,"ready":true,"usage":{"count":0,"cap":30},"passkeys":[],"connected":false}'}));
+  await p.route(/^https:\/\/(?!cdn\.jsdelivr)(?!.*functions\/v1)/, r=>r.abort());
+  await p.route(/cdn\.jsdelivr\.net\/npm\/@supabase/, r=>r.fulfill({contentType:'application/javascript', body:stub}));
+  await p.route(/localhost:8765\/(index\.html)?(\?.*)?$/, async r => { const res = await fetch('http://localhost:8765/index.html'); r.fulfill({status:200, contentType:'text/html', body:(await res.text()).replace(/ integrity="sha384-Rj26[^"]*"/,'')}); });
+  await p.goto('http://localhost:8765/',{waitUntil:'load'}); await p.waitForTimeout(2000);
+  await p.$$eval('[data-fold=d-food],[data-fold=d-train]', ds=>ds.forEach(d=>d.open=true));
+  await p.$eval('[data-fold=d-food]', el=>el.scrollIntoView({block:'start'})); await p.waitForTimeout(200); await p.screenshot({path:'a-today.png'});
+  await p.click('#menuBtn'); await p.click('#prevDay'); await p.click('#prevDay'); await p.click('#menuClose'); await p.waitForTimeout(300); await p.$$eval('[data-fold=d-food],[data-fold=d-train]', ds=>ds.forEach(d=>d.open=true)); await p.$eval('[data-fold=d-food]', el=>el.scrollIntoView({block:'start'})); await p.waitForTimeout(200); await p.screenshot({path:'a-day.png'});
+  await b.close(); })();
