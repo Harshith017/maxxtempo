@@ -38,7 +38,7 @@ const FAM = [
   ['boxing', 'Boxing', /\bboxing\b/, /^boxing/, '15120'],
   ['martial-arts', 'Martial arts', /\b(martial arts?|karate|judo|taekwondo|tae kwon do|jiu ?jitsu|mma|muay thai|kung ?fu|kalaripayattu)\b/, /^martial arts|^judo|^taekwondo|^kendo/, '15430'],
   ['wrestling', 'Wrestling', /\bwrestl(ing|ed)\b/, /^wrestling/, '15730'],
-  ['climbing', 'Climbing', /\b(rock climbing|bouldering|wall climbing)\b/, /^rock/, '15537'],
+  ['climbing', 'Rock climbing', /\b(rock climbing|bouldering|wall climbing)\b/, /^rock/, '15537'],
   ['skating', 'Skating', /\b(skating|roller ?blading|skateboard(ing)?)\b/, /^skating|^roller ?blading|^skateboard/, '15590'],
   ['skipping', 'Skipping', /\b(skipping|jump(ing)? ?rope|rope ?(jumping|skipping))\b/, /^rope jumping|^rope skipping|^jumping rope/, '02068'],
   ['trampoline', 'Trampoline', /\btrampoline\b/, /^trampoline/, '15700'],
@@ -152,21 +152,28 @@ function swimByPace(rows, km, min) {
 
 // Rows for a special setting (a track, a treadmill, uphill, on ice…) only when the entry says so.
 const SETTING = /\b(track|marathon|stairs|treadmill|uphill|downhill|stroller|backpack|barefoot|wheelchair|cross country|triathlon|hilly|mountain|stationary|bmx|e-bike|in place|mini-tramp|beach|sand|ice|water tank|ergometer|digi-jump|weights|robot|virtual|video|curved|nordic|backward|elite|synchronized|treading)\b/g;
-function pickRow(fam, text, profileText) {
+// effort: 'easy' or 'hard' picked in the app, which outweighs any words typed.
+function pickRow(fam, text, profileText, effort) {
   const def0 = BY.get(fam[4]);
   const rows = ROWS.filter(r => fam[3].test(r.d) && !/officiating|coaching|spectator/.test(r.d) && (r === def0 || (r.d.match(SETTING) || []).every(q => text.includes(q))));
   if (!rows.length) return null;
   let want = intents(text);
   if (!want.length && profileText) want = intents(profileText.toLowerCase());
+  if (effort === 'easy' || effort === 'hard') want = [...want, { words: GROUPS[effort === 'easy' ? 0 : 1][1], w: 3 }];
   const def = BY.get(fam[4]) || rows[0];
   if (!want.length) return def;
-  const score = r => want.reduce((s, g) => s + (g.words.some(w => r.d.includes(w)) ? g.w : 0), 0);
+  // "competitive" must not match "non-competitive".
+  const has = (d, w) => d.includes(w) && !d.includes('non-' + w);
+  const score = r => want.reduce((s, g) => s + (g.words.some(w => has(r.d, w)) ? g.w : 0), 0);
   const best = Math.max(...rows.map(score)); if (!best) return def;
   const top = rows.filter(r => score(r) === best);
   if (top.includes(def)) return def;
   // Among equal matches: the newer measured rows over the older Taylor codes, then the one
   // nearest the usual effort.
-  return top.sort((a, b) => (/taylor/.test(a.d) - /taylor/.test(b.d)) || (Math.abs(a.met - def.met) - Math.abs(b.met - def.met)))[0];
+  const row = top.sort((a, b) => (/taylor/.test(a.d) - /taylor/.test(b.d)) || (Math.abs(a.met - def.met) - Math.abs(b.met - def.met)))[0];
+  // A chosen effort never lands on a row that goes the other way from the usual one.
+  if ((effort === 'easy' && row.met > def.met) || (effort === 'hard' && row.met < def.met)) return def;
+  return row;
 }
 
 const LEVEL = met => met < 3 ? 'light' : met < 6 ? 'moderate' : 'vigorous';
@@ -198,7 +205,7 @@ function read(text, opts) {
   const fams = ROWS.filter(r => fam[3].test(r.d));
   if (km && (kind === 'run' || kind === 'walk' || kind === 'bike') && !/stationary|spin/.test(t)) row = bySpeed(fams, km / (min / 60), t);
   if (km && kind === 'swim' && !/breast|back ?stroke|butterfly/.test(t)) row = swimByPace(fams, km, min);
-  if (!row) row = pickRow(fam, t, prof.text);
+  if (!row) row = pickRow(fam, t, prof.text, opts.effort);
   if (!row) return null;
   const stats = fam[0] === 'cricket' ? cricketStats(t) : {};
   return { key: fam[0], name: fam[1], text: t, minutes: Math.round(min), km, met: row.met, code: row.code, desc: row.desc, stats, assumed, level: LEVEL(row.met) };

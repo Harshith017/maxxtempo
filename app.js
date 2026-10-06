@@ -943,12 +943,12 @@ function sportProfile(key){
   const len = ans.find(a => /^(length|session|nets_min)$/.test(a.id) && Number(a.a) > 0);
   return {text: ans.map(a => String(a.a||'')).join(' '), minutes: len ? Math.min(Number(len.a), 480) : 0};
 }
-function sportFromText(text, date, famKey){
+function sportFromText(text, date, famKey, effort){
   if (typeof Sports === 'undefined' || !Sports.ready()) return null;
-  let sp = Sports.read(text);
-  if (!sp && famKey) { const f = Sports.family(famKey); if (f) sp = Sports.read(`${f[1]} session ${text}`); }
+  let sp = Sports.read(text, {effort});
+  if (!sp && famKey) { const f = Sports.family(famKey); if (f) sp = Sports.read(`${f[1]} session ${text}`, {effort}); }
   if (!sp) return null;
-  sp = Sports.read(sp.text, {profile: sportProfile(sp.key)}) || sp;
+  sp = Sports.read(sp.text, {profile: sportProfile(sp.key), effort}) || sp;
   const hours = sp.met >= 7 && sp.minutes >= 60 ? 36 : sp.met >= 5 && sp.minutes >= 45 ? 24 : 12;
   const rpe = sp.met < 3 ? 3 : sp.met < 4.5 ? 4 : sp.met < 6 ? 5 : sp.met < 8 ? 6 : sp.met < 10 ? 7 : 8;
   return {key:sp.key, name:sp.name, minutes:sp.minutes, res:{local:true, title:sp.name, summary:`${n0(sp.minutes)} min${sp.km?`, ${n1(sp.km)} km`:''}, ${sp.level} effort`, minutes:sp.minutes,
@@ -993,7 +993,7 @@ const actLine = a => a.v===2 ? (a.summary || (a.components||[]).map(c=>c.part).j
 function activityPanel(day){
   const acts = day.sports||[], ex = day.exercises||[], t = dayTotals(day);
   let h = '';
-  if (!acts.length && !ex.length) h += `<div class="empty">Nothing yet. Type what you did in the box above, like “played a cricket match, bowled 4 overs” or “badminton 1 hr”. I’ll ask anything I need to know.</div>`;
+  if (!acts.length && !ex.length) h += `<div class="empty">Nothing yet. Start a workout above, or add a sport like badminton or a run.</div>`;
   for (const a of acts) {
     h += `<div class="act"><div class="act-h"><div><div class="nm">${esc(actTitle(a))}${a.rpe?` <span class="tag">effort ${a.rpe}/10</span>`:''}</div><div class="sub">${esc(actLine(a))}${a.minutes?` · ${n0(a.minutes)} min`:''}</div></div>
       <div class="kc">${n0(a.kcal)}<span class="muted small"> kcal</span></div>
@@ -1771,8 +1771,9 @@ function viewGym(){
   const day = getDay(S.date), hasTraining = (day.sports||[]).length || (day.exercises||[]).length;
   return `<div class="grid">
     ${wkPanel()}
-    ${S.workout ? '' : loggerHtml('gym')}
+    ${queueCard() ? `<section class="panel span2" aria-label="Activity questions">${queueCard()}</section>` : ''}
     <section class="panel span2" aria-label="Training on this day"><div class="panel-head"><h2>${S.date===localDate()?'Today’s training':'Training on '+esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'short'}))}</h2>${hasTraining?`<span class="muted small">${n0(dayTotals(day).burned)} kcal</span>`:''}</div>
+      <div class="row"><button class="btn ghost sm" data-action="addSport">+ Add sport or activity</button></div>
       ${activityPanel(day)}</section>
     <h2 class="sect">Workout progress</h2>
     <div class="panel-head"><h2>${S.gymPeriod==='week'?'This week':'This month'}</h2>
@@ -1822,7 +1823,7 @@ function wkExercise(name, group, o={}){
 function wkStart(routine){
   if (S.workout && !confirm('A workout is already in progress. Discard it and start a new one?')) return;
   const ex = (routine?.exercises||[]).map(r => { const e = wkExercise(r.name, r.group, r); if (r.warmups) e.sets.unshift(...warmupSets(r.weight || (prevSets(r.name)[0]||{}).weight, r.warmups)); return e; });
-  S.workout = { id:uid(), name: routine ? routine.name : 'Workout', started: new Date().toISOString(), date: localDate(), routine_id: routine ? routine.id : null, exercises: ex };
+  S.workout = { id:uid(), name: routine ? routine.name : 'Workout', started: new Date().toISOString(), date: S.date < localDate() ? S.date : localDate(), routine_id: routine ? routine.id : null, exercises: ex };
   wkSave(); if (S.view!=='gym') setView('gym'); else render(); window.scrollTo({top:0});
 }
 // Warm-up ramp to a working weight: about 50% × 8, 70% × 5, 85% × 3, on the bar for light weights.
@@ -1883,6 +1884,7 @@ function wkPanel(){
     const rs = (S.routines||[]).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name)));
     return `<section class="panel span2 wkstart" aria-label="Workout"><div class="panel-head"><h2>Workout</h2>${hideBtn('wk','workout')}</div>
       ${isHidden('wk') ? '' : `<div class="row"><button class="btn" data-action="wkStart">Start empty workout</button><button class="btn ghost" data-action="routineNew">New routine</button></div>
+      ${S.date < localDate() ? `<div class="muted small">A workout you start now is saved to ${esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'short'}))}, the day you’re looking at.</div>` : ''}
       ${rs.length ? `<h3>My routines</h3><div class="routines">${rs.map(r=>`<div class="routine"><div><b>${esc(r.name)}</b><div class="muted small">${esc((r.exercises||[]).map(e=>e.name).join(' · ')||'No exercises yet')}</div></div>
         <div class="row"><button class="btn sm" data-action="wkStartRoutine" data-id="${esc(r.id)}">Start</button><button class="btn ghost sm" data-action="routineEdit" data-id="${esc(r.id)}" aria-label="Edit ${esc(r.name)}">Edit</button></div></div>`).join('')}</div>`
         : `<div class="muted small">Save your usual sessions (Push day, Legs…) as routines and start them with one tap. Or start an empty workout and save it as a routine at the end.</div>`}`}
@@ -1893,6 +1895,7 @@ function wkPanel(){
   return `<section class="panel span2 wklive" aria-label="Workout in progress">
     <div class="wkhead"><input class="wkname" data-wkname value="${esc(w.name)}" aria-label="Workout name">
       <div class="wkstats"><span><b id="wkClock">${fmtDur(Date.now()-Date.parse(w.started))}</b> time</span><span><b>${n0(vol)}</b> kg volume</span><span><b>${doneSets}</b> sets</span></div>
+      ${w.date !== localDate() ? `<div class="muted small">Saving to ${esc(fmtDate(w.date,{weekday:'long',day:'numeric',month:'short'}))}</div>` : ''}
       <div class="row"><button class="btn ghost sm" data-action="wkDiscard">Discard</button><span class="spacer"></span><button class="btn sm" data-action="wkFinish">Finish</button></div></div>
     ${w.exercises.map((e,i)=>{
       const prev = prevSets(e.name).filter(s=>s.type!=='warmup'); let wi = 0, n = 0;
@@ -2987,6 +2990,38 @@ function openExEdit(id){
     d.close(); };
 }
 
+// Sports and activities from the Compendium table (sports.js), picked rather than typed.
+async function openAddSport(){
+  await Promise.race([loadActs(), new Promise(r => setTimeout(r, 3000))]);
+  if (typeof Sports==='undefined' || !Sports.ready()) { toast('The activity table didn’t load. Check your connection and try again.'); return; }
+  const d = $('#dlg'), fams = Sports.families(), mine = Object.keys(prof().sports||{});
+  const yours = fams.filter(f=>mine.includes(f.key)), rest = fams.filter(f=>!mine.includes(f.key));
+  let key = S.lastSport && Sports.family(S.lastSport) ? S.lastSport : (yours[0]||fams[0]).key, touched = false;
+  const hint = k => k==='cricket' ? 'e.g. nets, bowled 6 overs pace, faced 40 balls' : /badminton|tennis|squash|table-tennis|pickleball/.test(k) ? 'e.g. singles or doubles'
+    : /running|jogging|walking|cycling|swimming|hiking|rowing/.test(k) ? 'e.g. 5 km' : 'e.g. anything else about it';
+  const defMin = k => sportProfile(k).minutes || 60;
+  const opts = list => list.map(f=>`<option value="${esc(f.key)}" ${f.key===key?'selected':''}>${esc(f.name)}</option>`).join('');
+  d.innerHTML = `<form class="form" id="asform" style="gap:12px"><h2 class="full">Add sport or activity</h2>
+    <label class="field full">Activity<select id="as_key">${yours.length?`<optgroup label="Your sports">${opts(yours)}</optgroup><optgroup label="All">${opts(rest)}</optgroup>`:opts(fams)}</select></label>
+    <label class="field">Minutes<input id="as_min" type="number" min="1" max="600" inputmode="numeric" value="${defMin(key)}"></label>
+    <label class="field">Effort<select id="as_eff"><option value="easy">Easy</option><option value="" selected>Normal</option><option value="hard">Hard</option></select></label>
+    <label class="field full">Details <span class="muted small">(optional)</span><input id="as_det" type="text" maxlength="120" placeholder="${esc(hint(key))}" autocomplete="off"></label>
+    <div class="full" id="as_prev"></div>
+    <div class="full row"><span class="spacer"></span><button class="btn ghost" type="button" id="as_cancel">Cancel</button><button class="btn" type="submit">Log it</button></div></form>`;
+  if (!d.open) d.showModal();
+  const build = () => { const f = Sports.family(key), min = num($('#as_min').value, 600); if (!f || !min) return null;
+    const entry = `${f[1]} ${min} min${$('#as_det').value.trim() ? ', ' + $('#as_det').value.trim() : ''}`;
+    const sp = sportFromText(entry, S.date, key, $('#as_eff').value || undefined); if (!sp) return null;
+    return makeActivity({key:sp.key, name:sp.name, entry, date:S.date, time:nowTime(), qa:[]}, sp.res); };
+  const upd = () => { const a = build();
+    $('#as_prev').innerHTML = a ? `<b>about ${n0(a.kcal)} kcal</b> · ${esc(a.title)}, ${esc(a.summary)}` : '<span class="muted small">Enter the minutes.</span>'; };
+  $('#as_key').onchange = ev => { key = ev.target.value; if (!touched) $('#as_min').value = defMin(key); $('#as_det').placeholder = hint(key); upd(); };
+  $('#as_min').oninput = () => { touched = true; upd(); };
+  $('#as_det').oninput = upd; $('#as_eff').onchange = upd; upd();
+  $('#as_cancel').onclick = () => d.close();
+  $('#asform').onsubmit = async ev => { ev.preventDefault(); const a = build(); if (!a) { upd(); return; }
+    S.lastSport = key; d.close(); await saveEntry(S.date, {sportsLocal:[a]}); toast(`Logged ${a.title} · ${n0(a.minutes)} min · ${n0(a.kcal)} kcal`); };
+}
 function openSportEdit(id){
   const a = (getDay(S.date).sports||[]).find(x=>x.id===id); if (!a) return;
   if (a.v===2) return openActEdit(a);
@@ -3104,6 +3139,7 @@ document.addEventListener('click', ev => {
     case 'editFood': openFoodEdit(b.dataset.id); break;
     case 'editEx': openExEdit(b.dataset.id); break;
     case 'editSport': openSportEdit(b.dataset.id); break;
+    case 'addSport': openAddSport(); break;
     case 'ans': { const ns=b.dataset.ns, q=b.dataset.q, v=b.dataset.v;
       if (ns==='q') { const it=S.queue[0]; if (it) it.answers[q] = it.answers[q]===v ? undefined : v; }
       else if (ns.startsWith('setup.')) { const k=ns.slice(6); const o=(S.setup.answers[k] ||= {}); o[q] = o[q]===v ? undefined : v; }
