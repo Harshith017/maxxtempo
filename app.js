@@ -447,7 +447,6 @@ function supplementsPanel(day){
   if (extra.length) h += extra.map(x => `<div class="item"><div><div class="nm">${esc(x.name)}</div><div class="sub">${esc(x.dose)}${x.time?' · '+esc(x.time):''}</div></div>
     <button class="linkbtn" data-action="addStack" data-id="${x.id}">Add to daily list</button>
     <div class="acts"><button data-action="delSupp" data-id="${x.id}" aria-label="Delete ${esc(x.name)}">✕</button></div></div>`).join('');
-  if (stack.length) h += `<div class="muted small">Tap to mark taken or skipped. Their vitamins and minerals count toward your daily totals in Trends.</div>`;
   return h;
 }
 function guessMeal(){ const h=new Date().getHours(); return h<11?'breakfast':h<16?'lunch':h<19?'snack':'dinner'; }
@@ -1356,6 +1355,30 @@ function reviewPanel(){
   </section>`;
 }
 
+/* ---------- foods logged before, offered while typing in the Today box ---------- */
+function pastFoods(){
+  if (S._pf && S._pfRev===S.rev) return S._pf;
+  const m = new Map();
+  for (const [date,d] of S.days) for (const f of d.foods||[]) { if (!f.name) continue;
+    const k = exKey(f.name)+'|'+exKey(f.quantity||f.grams||''), e = m.get(k);
+    if (e) { e.n++; if (date > e.date) { e.f = f; e.date = date; } } else m.set(k, {f, n:1, date}); }
+  S._pf = [...m.values()]; S._pfRev = S.rev; return S._pf;
+}
+// The part being typed now: after the last comma or new line, without a leading amount ("2 ", "150 g ").
+const LEAD_QTY = /^(?:[\d.½¼¾\/]+\s*(?:g|gm|gms|kg|ml|l|cups?|katori|pieces?|pcs?|slices?|tbsp|tsp|bowls?|plates?|glass(?:es)?|scoops?)?\s+|(?:a|an|one|two|three|half)\s+)/i;
+function foodSugg(){
+  const box = $('#fsugg'), ta = $('#logText'); if (!box || !ta) return;
+  const seg = (ta.value.split(/[,;\n]/).pop()||'').trim().replace(LEAD_QTY,'');
+  const q = normFood(seg).split(' ').filter(Boolean);
+  S.fsugg = seg.length>=2 && q.length ? pastFoods().filter(x => { const w = normFood(x.f.name).split(' '); return q.every(t => w.some(n => n.startsWith(t))); })
+    .sort((a,b)=> b.n-a.n || b.date.localeCompare(a.date)).slice(0,6) : [];
+  box.hidden = !S.fsugg.length;
+  // Only redraw when the list changes: leaving the box fires a change event mid-tap, and a
+  // redraw then would swallow the tap.
+  const html = S.fsugg.map((x,i)=>`<button class="exrow" data-action="suggFood" data-i="${i}"><span>${esc(x.f.name)}<span class="muted small"> · ${esc(x.f.quantity||(x.f.grams?n0(x.f.grams)+' g':''))}</span></span><span class="tag">${n0(x.f.kcal)} kcal</span></button>`).join('');
+  if (box.innerHTML !== html) box.innerHTML = html;
+}
+
 /* ---------- recent foods ---------- */
 // The foods you log most often in the last 30 days (latest portion of each), most frequent first.
 function recentFoods(){
@@ -1438,7 +1461,7 @@ function workoutFold(){
   const p = prof();
   return `<label class="check"><input type="checkbox" data-action="restToggle" ${restOn()?'checked':''}> Show a rest timer after I log sets</label>
     <label class="field">Default rest<select data-action="restDefault">${[45,60,90,120,150,180].map(v=>`<option value="${v}" ${Number(p.rest_default||90)===v?'selected':''}>${v<60?v+' s':`${Math.floor(v/60)}:${pad(v%60)} min`}</option>`).join('')}</select></label>
-    <div class="muted small">It counts down at the bottom of the screen and buzzes (and beeps) when rest is over. Tap 60s / 90s / 120s to change it for that set.</div>`;
+`;
 }
 
 /* ---------- UI bits ---------- */
@@ -1511,6 +1534,7 @@ function loggerHtml(kind){
     <div class="panel-head"><h2>${kind==='gym'?'Log training':'Log food'}</h2><span class="muted small">${esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'long'}))}</span></div>
     ${kind==='gym' ? queueCard() : ''}
     <textarea id="logText" placeholder="${esc(ph)}" ${S.busy?'disabled':''}></textarea>
+    ${kind!=='gym' ? '<div id="fsugg" class="exres fsugg" aria-label="Foods you’ve logged before" hidden></div>' : ''}
     <div class="row">
       ${S.canPhoto && kind!=='gym' ? `<button class="btn ghost sm" data-action="pickPhoto" ${S.busy?'disabled':''}>Add photo</button>` : ''}
       ${kind!=='gym' ? `<button class="btn ghost sm" data-action="foodSearch" ${S.busy?'disabled':''}>Find food</button><button class="btn ghost sm" data-action="scan" ${S.busy?'disabled':''} aria-label="Scan a barcode">Scan</button>` : ''}
@@ -1693,23 +1717,37 @@ function viewToday(){
           <div class="sub">${esc(f.quantity||(f.grams?n0(f.grams)+' g':''))} · P ${n0(f.protein)} · C ${n0(f.carbs)} · F ${n0(f.fat)}</div></div>
           <div class="kc">${n0(f.kcal)}</div>
           <div class="acts"><button data-action="editFood" data-id="${f.id}" aria-label="Edit ${esc(f.name)}">Edit</button><button data-action="delFood" data-id="${f.id}" aria-label="Delete ${esc(f.name)}">✕</button></div></div>`).join('')}</div>`).join('')
-        : `<div class="empty">Nothing logged yet. Type a meal above, like “2 eggs, 2 slices brown bread, 1 banana”.</div>`}
-      ${(day.foods||[]).length?`<label class="check muted small" style="margin-top:12px"><input type="checkbox" data-action="dayComplete" ${day.incomplete?'':'checked'}> I logged everything I ate on this day (days you untick are left out when your real maintenance is measured)</label>`:''}`)}
+        : `<div class="empty">Nothing logged yet.</div>`}
+      ${(day.foods||[]).length?`<label class="check muted small" style="margin-top:12px"><input type="checkbox" data-action="dayComplete" ${day.incomplete?'':'checked'}> I logged everything I ate this day</label>`:''}`)}
     </section>
     <section class="panel goals" aria-label="Today's goals">
       <div class="panel-head"><h2>Today’s goals</h2></div>
       ${(()=>{ const full = Math.floor(t.water/250), glasses = Math.min(12, Math.max(4, Math.ceil(WT/250), full));
         const stW = t.water>0 ? goalState(t.water, WT, 'more') : null, stS = H.steps ? goalState(H.steps, goal, 'more') : null, stZ = H.sleep_min ? goalState(H.sleep_min, 420, 'more') : null;
         const bar = (v, tg, st) => `<div class="meter"><i style="width:${Math.min(100,P(v,tg))}%;background:${st?stBar(st):'var(--ink-3)'}"></i></div>`;
-        return `<div class="grow">${icon('water','var(--water)')}<div class="gt"><b>Water</b><span class="muted small">${fmtL(t.water)} of ${fmtL(WT)} L · tap a glass to add 250 ml</span></div>${statePill(stW)}</div>
+        return `<div class="grow">${icon('water','var(--water)')}<div class="gt"><b>Water</b><span class="muted small">${fmtL(t.water)} of ${fmtL(WT)} L</span></div>${statePill(stW)}</div>
           <div class="glasses2">${Array.from({length:glasses},(_,i)=>`<button class="gl${i<full?' on':''}" ${i<full?'disabled':'data-action="water" data-ml="250"'} aria-label="${i<full?'Glass drunk':'Add a 250 ml glass'}"><svg viewBox="0 0 24 28" aria-hidden="true"><path class="cup" d="M4 3h16l-2 21a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2z"/><path class="fill" d="M5.4 10h13.2l-1.4 14a1.4 1.4 0 0 1-1.4 1.3H8.2a1.4 1.4 0 0 1-1.4-1.3z"/></svg></button>`).join('')}</div>
           <div class="row">${[500,750].map(ml=>`<button class="btn ghost sm" data-action="water" data-ml="${ml}">+ ${ml} ml</button>`).join('')}${(day.water||[]).length?`<span class="spacer"></span><button class="linkbtn" data-action="undoWater">Undo</button>`:''}</div>
           <div class="grow">${icon('steps','var(--accent)')}<div class="gt"><b>Steps</b><span class="muted small">${H.steps?n0(H.steps):'0'} of ${n0(goal)}</span></div>${statePill(stS)}</div>${bar(H.steps||0, goal, stS)}
-          <div class="grow">${icon('sleep','var(--fat)')}<div class="gt"><b>Sleep</b><span class="muted small">${H.sleep_min?`${fmtSleep(H.sleep_min)} · ${sv?sv.label.toLowerCase():''}`:'not logged'} · aim 7 h+</span></div>${statePill(stZ)}</div>${bar(H.sleep_min||0, 420, stZ)}
-          ${day.health_synced_at?`<div class="muted small">Synced from Apple Health at ${esc(new Date(day.health_synced_at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}))}.</div>`
-            : !H.steps&&!H.sleep_min?`<div class="muted small">Add steps and sleep by typing “slept 7h 10m, 9200 steps” in the log box${S.hsync?.connected?'':`, or <button class="linkbtn" data-action="goto" data-view="profile">sync them from Apple Health</button> automatically (iPhone)`}.</div>`:''}`; })()}
+          <div class="grow">${icon('sleep','var(--fat)')}<div class="gt"><b>Sleep</b><span class="muted small">${H.sleep_min?`${fmtSleep(H.sleep_min)} · ${sv?sv.label.toLowerCase():''}`:'not logged'}</span></div>${statePill(stZ)}</div>${bar(H.sleep_min||0, 420, stZ)}`; })()}
     </section>
+    ${microsPanel(day)}
   </div>`;
+}
+
+// Vitamins and minerals for the day (food + supplements), at the bottom of Today.
+function microsPanel(day){
+  const dt = dayTotals(day), DT = dayTargets(day);
+  const low = MICROS.filter(m=>m.kind!=='limit'&&DT.micros[m.key]&&dt.micros[m.key]/DT.micros[m.key]<0.5).length;
+  const logged = (day.foods||[]).length || (day.supplements||[]).length;
+  return `<section class="panel span2" aria-label="Vitamins and minerals"><div class="panel-head"><h2>Vitamins &amp; minerals</h2><span class="headr">${low&&logged&&!isHidden('mic')?`<span class="muted small">${low} low</span>`:''}${hideBtn('mic','vitamins and minerals')}</span></div>
+    ${isHidden('mic') ? '' : `<div class="facts"><div class="grid two" style="gap:0 24px">
+      ${MICROS.map(m=>{ const v=dt.micros[m.key], tg=DT.micros[m.key]; const p=tg?v/tg*100:0; const lim=m.kind==='limit';
+        const st = goalState(v, tg, lim?'limit':'more');
+        return `<div class="fr"><b>${m.label}${lim?' <span class="muted small">(limit)</span>':''}${(DT.focus||[]).includes(m.key)?' <span class="tag est">blood test</span>':''}</b><span class="amt">${fmtAmt(v,m.unit)} ${m.unit}</span><span class="dv" style="color:${stText(st)}">${Math.round(p)}%</span>
+          <div class="bar"><i style="width:${Math.min(100,p)}%;background:${stBar(st)}"></i></div></div>`; }).join('')}
+      </div></div>`}
+  </section>`;
 }
 
 /* ---------- Train ---------- */
@@ -1743,13 +1781,13 @@ function recentPrs(days=30){
 }
 function growthDash(rows){
   if (!rows.length) return `<section class="panel" aria-label="Gym progress"><div class="panel-head"><h2>Gym progress</h2></div>
-    <div class="empty">Log a workout on Today, like “bench 60kg 3x8”. Each exercise then shows here with how much stronger you’re getting.</div></section>`;
-  const shown = S.allEx ? rows : rows.slice(0,6);
+    <div class="empty">Finish a workout and your exercises show here.</div></section>`;
+  const shown = S.allEx ? rows : rows.slice(0,5);   // the 5 trained most recently
   const month = addDays(localDate(), -30);
   const prs = rows.filter(r => r.e.sessions.length>1 && r.last.date>=month && r.last.best>=r.allBest && r.last.best>Math.max(...r.e.sessions.slice(0,-1).map(s=>s.best))).length;
   const up = rows.filter(r => r.base!==r.last && r.last.best>r.base.best).length;
-  return `<section class="panel" aria-label="Gym progress"><div class="panel-head"><h2>Gym progress</h2><span class="muted small">${rows.length} exercise${rows.length===1?'':'s'}</span></div>
-    <div class="row"><span class="pill good">${up} getting stronger</span>${prs?`<span class="pill">${prs} new best${prs===1?'':'s'} this month</span>`:''}</div>
+  return `<section class="panel" aria-label="Gym progress"><div class="panel-head"><h2>Gym progress</h2>${hideBtn('gp','gym progress')}</div>
+    ${isHidden('gp') ? '' : `<div class="row"><span class="pill good">${up} getting stronger</span>${prs?`<span class="pill">${prs} new best${prs===1?'':'s'} this month</span>`:''}</div>
     <div class="exgrid">${shown.map(r => { const ch = r.base!==r.last && r.base.best ? (r.last.best-r.base.best)/r.base.best*100 : null;
       return `<button class="excell${r.e.key===S.gymEx?' sel':''}" data-action="pickEx" data-key="${esc(r.e.key)}">
         <span class="nm">${esc(r.e.name)}</span>
@@ -1757,9 +1795,8 @@ function growthDash(rows){
         <span class="muted small">${r.bw?'most reps':'est. 1RM'} · ${esc(fmtDate(r.last.date,{day:'numeric',month:'short'}))}</span>
         <span class="delta ${ch===null?'flat':ch>0.5?'up':ch<-0.5?'down':'flat'}">${ch===null?'first session':`${ch>0?'+':''}${n1(ch)}% ${r.base.date<=addDays(r.last.date,-28)?'vs 4 wks ago':`since ${esc(fmtDate(r.base.date,{day:'numeric',month:'short'}))}`}`}</span>
         ${spark(r.e.sessions.slice(-10).map(s=>s.best), 'var(--protein)')}</button>`; }).join('')}</div>
-    ${rows.length>6?`<button class="linkbtn" data-action="allEx" style="align-self:flex-start;padding-left:0">${S.allEx?'Show fewer':`Show all ${rows.length} exercises`}</button>`:''}
-    ${(()=>{ const pr = recentPrs(30); return pr.length ? `<div><h3>Personal records, last 30 days</h3>${pr.slice(0,8).map(x=>`<div class="item"><div><div class="nm"><span class="prbadge">PR</span> ${esc(x.name)}</div><div class="sub">${esc(x.text)}</div></div><span class="muted small">${esc(fmtDate(x.date,{day:'numeric',month:'short'}))}</span><span></span></div>`).join('')}</div>` : ''; })()}
-    <div class="muted small">Tap an exercise for its full chart. Est. 1RM = weight × (1 + reps ÷ 30), so sets with different reps compare fairly.</div>
+    ${(()=>{ const pr = recentPrs(30); return pr.length ? `<div><h3>Personal records, last 30 days</h3>${pr.slice(0,5).map(x=>`<div class="item"><div><div class="nm"><span class="prbadge">PR</span> ${esc(x.name)}</div><div class="sub">${esc(x.text)}</div></div><span class="muted small">${esc(fmtDate(x.date,{day:'numeric',month:'short'}))}</span><span></span></div>`).join('')}</div>` : ''; })()}
+    ${rows.length>5?`<button class="btn ghost sm" data-action="allEx" style="align-self:flex-start">${S.allEx?'Show fewer':`Show all ${rows.length} exercises`}</button>`:''}`}
   </section>`;
 }
 function viewGym(){
@@ -1772,9 +1809,9 @@ function viewGym(){
   return `<div class="grid">
     ${wkPanel()}
     ${queueCard() ? `<section class="panel span2" aria-label="Activity questions">${queueCard()}</section>` : ''}
-    <section class="panel span2" aria-label="Training on this day"><div class="panel-head"><h2>${S.date===localDate()?'Today’s training':'Training on '+esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'short'}))}</h2>${hasTraining?`<span class="muted small">${n0(dayTotals(day).burned)} kcal</span>`:''}</div>
-      <div class="row"><button class="btn ghost sm" data-action="addSport">+ Add sport or activity</button></div>
-      ${activityPanel(day)}</section>
+    <section class="panel span2" aria-label="Training on this day"><div class="panel-head"><h2>${S.date===localDate()?'Today’s training':'Training on '+esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'short'}))}</h2><span class="headr">${hasTraining&&!isHidden('tt')?`<span class="muted small">${n0(dayTotals(day).burned)} kcal</span>`:''}${hideBtn('tt','today’s training')}</span></div>
+      ${isHidden('tt') ? '' : `<div class="row"><button class="btn ghost sm" data-action="addSport">+ Add sport or activity</button></div>
+      ${activityPanel(day)}`}</section>
     <h2 class="sect">Workout progress</h2>
     <div class="panel-head"><h2>${S.gymPeriod==='week'?'This week':'This month'}</h2>
       <div class="seg" role="group" aria-label="Period"><button data-action="gymPeriod" data-p="week" aria-pressed="${S.gymPeriod==='week'}">Week</button><button data-action="gymPeriod" data-p="month" aria-pressed="${S.gymPeriod==='month'}">Month</button></div></div>
@@ -1784,7 +1821,6 @@ function viewGym(){
       <div class="tile"><span class="l">Volume lifted</span><span class="v">${n0(a.volume)}<span class="muted" style="font-size:16px"> kg</span></span>${delta(a.volume,b.volume)}</div>
       <div class="tile"><span class="l">Training kcal</span><span class="v">${n0(a.kcal)}</span>${delta(a.kcal,b.kcal)}</div>
     </div>
-    <div class="muted small">Changes compare ${S.gymPeriod==='week'?'this week so far':'this month so far'} with all of ${label}. Volume = weight × reps across every set.</div>
     ${growthDash(rows)}
     ${sel ? exerciseDetail(sel) : ''}
     <section class="panel folds" aria-label="Exercise library and settings">
@@ -1887,7 +1923,7 @@ function wkPanel(){
       ${S.date < localDate() ? `<div class="muted small">A workout you start now is saved to ${esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'short'}))}, the day you’re looking at.</div>` : ''}
       ${rs.length ? `<h3>My routines</h3><div class="routines">${rs.map(r=>`<div class="routine"><div><b>${esc(r.name)}</b><div class="muted small">${esc((r.exercises||[]).map(e=>e.name).join(' · ')||'No exercises yet')}</div></div>
         <div class="row"><button class="btn sm" data-action="wkStartRoutine" data-id="${esc(r.id)}">Start</button><button class="btn ghost sm" data-action="routineEdit" data-id="${esc(r.id)}" aria-label="Edit ${esc(r.name)}">Edit</button></div></div>`).join('')}</div>`
-        : `<div class="muted small">Save your usual sessions (Push day, Legs…) as routines and start them with one tap. Or start an empty workout and save it as a routine at the end.</div>`}`}
+        : ''}`}
     </section>`;
   }
   const doneSets = w.exercises.reduce((s,e)=>s+e.sets.filter(x=>x.done&&x.type!=='warmup').length,0);
@@ -1921,7 +1957,7 @@ function wkPanel(){
         <div class="row"><button class="btn ghost sm" data-action="wkAddSet" data-ex="${i}">+ Add set</button>${e.sets.length>1?`<button class="linkbtn" data-action="wkDelSet" data-ex="${i}">Remove last set</button>`:''}<span class="spacer"></span>${howtoFold(e.name)}</div>
       </div>`; }).join('')}
     <div class="row"><button class="btn ghost" data-action="wkAddEx">+ Add exercise</button></div>
-    <div class="muted small">Tap a set number to make it a warm-up (W), drop set (D) or set to failure (F). Empty boxes use last time’s numbers when you tick ✓.</div>
+    
   </section>`;
 }
 function wkFinishNow(){
@@ -2043,7 +2079,7 @@ function sourcesHtml(){
 function libraryHtml(){
   return `<label class="field full">Find an exercise<input id="exq" type="search" placeholder="e.g. incline db, lat pulldown, rdl" value="${esc(S.exq||'')}" autocomplete="off"></label>
     <div id="exres" class="exres">${libResults(S.exq||'')}</div>
-    <div class="muted small">Tap one for how to do it. Anything listed here logs without AI when you type its name with your sets, e.g. “${esc('zercher squat 60x5')}”.</div>`;
+    `;
 }
 function libResults(q){
   if (!q.trim()) return '';
@@ -2457,15 +2493,6 @@ function viewTrends(){
     ['Water', r=>r.t?r.t.water/1000:0, (v,s)=>fmtL(v*1000)+(s?'':' L'), 'more', r=>waterTarget(r.d||emptyDay(r.date), r.T)/1000, v=>`${fmtL(v*1000)} L`, `target ${fmtL(T.water_ml)} L+`],
   ];
   const day = getDay(S.date), dt = dayTotals(day), DT = dayTargets(day);
-  const microsHtml = `<div class="facts"><div class="dvh">% of daily target · ${esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'short'}))}</div>
-      <div class="grid two" style="gap:0 24px">
-      ${MICROS.map(m=>{ const v=dt.micros[m.key], tg=DT.micros[m.key]; const p=tg?v/tg*100:0; const lim=m.kind==='limit';
-        const st = goalState(v, tg, lim?'limit':'more');
-        return `<div class="fr"><b>${m.label}${lim?' <span class="muted small">(limit)</span>':''}${(DT.focus||[]).includes(m.key)?' <span class="tag est">blood test</span>':''}</b><span class="amt">${fmtAmt(v,m.unit)} ${m.unit}</span><span class="dv" style="color:${stText(st)}">${Math.round(p)}%</span>
-          <div class="bar"><i style="width:${Math.min(100,p)}%;background:${stBar(st)}"></i></div></div>`; }).join('')}
-      </div></div>
-    <div class="muted small">Includes your supplements. Targets are adult daily reference intakes for your sex; values are estimates from food tables, so read them as a guide.</div>`;
-  const low = MICROS.filter(m=>m.kind!=='limit'&&DT.micros[m.key]&&dt.micros[m.key]/DT.micros[m.key]<0.5).length;
   // targets reached, day by day
   const checks = [
     ['Steps', r=>r.d&&r.d.health&&r.d.health.steps ? goalState(r.d.health.steps, goal, 'more') : null],
@@ -2483,21 +2510,21 @@ function viewTrends(){
   const mark = x => x===null ? '<span class="muted">·</span>' : `<span class="st st-${x}">${x==='under'?'↓':x==='over'?'↑':'✓'}</span>`;
   const targetsHtml = `<div class="tablewrap" tabindex="0"><table class="hits"><thead><tr><th class="l"></th>${rows.map(r=>`<th>${esc(fmtDate(r.date,{weekday:'narrow'}))}</th>`).join('')}<th class="r">Hit</th></tr></thead><tbody>
     ${checks.map(([l,f])=>{ const res=rows.map(f); return `<tr><td class="l">${l}</td>${res.map(x=>`<td>${mark(x)}</td>`).join('')}<td class="r">${res.filter(ok).length}/${res.filter(x=>x!==null).length}</td></tr>`; }).join('')}
-    </tbody></table></div><div class="muted small"><span class="st-at">✓</span> on target (within 10%) · <span class="st-plus">✓</span> over, and that’s fine · <span class="st-under">↓</span> below · <span class="st-over">↑</span> over · dot = not logged.</div>`;
+    </tbody></table></div>`;
   const actDays = rows.slice().reverse().filter(r=>r.d&&((r.d.sports||[]).length||(r.d.exercises||[]).length));
   const activityHtml = actDays.length ? actDays.map(r=>`<h3>${esc(fmtDate(r.date,{weekday:'long',day:'numeric',month:'short'}))}</h3>${activityPanel(r.d)}`).join('') : '<div class="empty">No gym or sport logged in these 7 days.</div>';
   const actCount = actDays.reduce((s,r)=>s+(r.d.sports||[]).length+((r.d.exercises||[]).length?1:0),0);
   const {cur,prev,label} = periodRanges(S.date, 'week'); const a = periodStats(...cur), b = periodStats(...prev);
   const sportKcal = Object.values(a.sp).reduce((s,x)=>s+x.kcal,0);
   const weights = rows.filter(r=>r.d&&r.d.weight_kg);
-  const trendsW = (()=>{ const pts=trendPoints().slice(-30); if (pts.length<2) return '<div class="muted small">Log your weight a few times (type “weight 72.4”) to see your trend.</div>';
-    return lineChart({pts:pts.map(x=>({date:x.date, v:x.trend, raw:x.kg, tip:`trend ${n1(x.trend)} kg`})), unit:'kg', color:'var(--water)'}) + '<div class="muted small">The line is your smoothed weight trend, which your targets use. Daily weigh-ins swing 1–2 kg with water and food.</div>'; })();
+  const trendsW = (()=>{ const pts=trendPoints().slice(-30); if (pts.length<2) return '<div class="muted small">Log your weight a few times to see your trend.</div>';
+    return lineChart({pts:pts.map(x=>({date:x.date, v:x.trend, raw:x.kg, tip:`trend ${n1(x.trend)} kg`})), unit:'kg', color:'var(--water)'}); })();
   return `<div class="grid">
     ${boardHtml()}
     ${feedHtml()}
     ${trainingTrends()}
-    <div class="panel-head"><h2>Last 7 days</h2><span class="muted small">${esc(fmtDate(rows[0].date,{day:'numeric',month:'short'}))} – ${esc(fmtDate(rows[6].date,{day:'numeric',month:'short'}))}</span></div>
-    ${stateKey()}
+    <div class="panel-head"><h2>Last 7 days</h2>${hideBtn('w7','last 7 days')}</div>
+    ${isHidden('w7') ? '' : `${stateKey()}
     <div class="grid two">
     ${metrics.map(([title,get,fmt,kind,target,fmtAvg,sub])=>{ const w = weekBars(rows, get, fmt, kind, target);
       const pts = rows.map(r=>({r, v:get(r)})).filter(x=>x.v>0);
@@ -2507,9 +2534,8 @@ function viewTrends(){
       const day = x => esc(fmtDate(x.r.date,{weekday:'long'}));
       return `<section class="panel wk"><div class="panel-head"><h3>${title}</h3><span class="muted small">avg ${w.avg?fmtAvg(w.avg):'—'} · ${esc(sub)}</span></div>${w.html}
         ${best&&worst&&best!==worst?`<div class="insight"><div><span class="idot" style="background:${stBar('at')}"></span><span><b>Best day</b><span class="muted small">${day(best)}</span></span><b class="num">${fmtAvg(best.v)}</b></div><div><span class="idot" style="background:${stBar('over')}"></span><span><b>${kind==='range'?'Furthest from target':'Lowest day'}</b><span class="muted small">${day(worst)}</span></span><b class="num">${fmtAvg(worst.v)}</b></div></div>`:''}</section>`; }).join('')}
-    </div>
+    </div>`}
     <section class="panel folds">
-      ${fold('t-micros', 'Vitamins &amp; minerals', low?`${low} low today`:'', microsHtml)}
       ${fold('t-activity', 'Activity', `${actCount} session${actCount===1?'':'s'}`, activityHtml)}
       ${fold('t-targets', 'Daily targets reached', tries?`${hits} of ${tries}`:'', targetsHtml)}
       ${fold('t-sports', 'Sports played', sportKcal?`${n0(sportKcal)} kcal this week`:'', sportSummary(a,b,label))}
@@ -2597,7 +2623,7 @@ function trainingTrends(){
       <div class="tile"><span class="l">This week</span><span class="v">${st.thisWeek}<span class="muted" style="font-size:16px"> ${st.thisWeek===1?'day':'days'}</span></span><span class="muted small">trained</span></div></div>
     <div class="panel-head"><h3>Sets per muscle</h3><div class="seg" role="group" aria-label="Muscle period">${[['week','This week'],['month','This month'],['30','30 days']].map(([k,l])=>`<button data-action="musclePeriod" data-p="${k}" aria-pressed="${per===k}">${l}</button>`).join('')}</div></div>
     ${list.length ? `<div class="musclewrap">${bodyMap(sets)}<div class="musclebars">${list.map(([m,v])=>`<div class="mbar"><span>${esc(titleCase(m))}</span><span class="mtrack"><i style="width:${v/max*100}%"></i></span><b>${n0(v)}</b></div>`).join('')}</div></div>
-      <div class="muted small">Working sets (warm-ups left out). About 10–20 hard sets per muscle a week suits most people building muscle.</div>` : '<div class="muted small">No gym sets in this period yet.</div>'}
+      <div class="muted small">Working sets, warm-ups left out.</div>` : '<div class="muted small">No gym sets in this period yet.</div>'}
     <section class="folds">${fold('t-month', 'Monthly report', esc(fmtDate(t,{month:'long'})), monthReport())}${fold('t-year', 'Year in review', t.slice(0,4), yearReview())}</section>`}
   </section>`;
 }
@@ -2616,7 +2642,7 @@ function measuresHtml(){
     ${rows ? `<div class="mlist">${rows}</div>` : ''}
     ${ms.length ? `<details class="howfold"><summary>All entries</summary>${ms.slice().reverse().map(m=>`<div class="item"><div><div class="nm">${esc(fmtDate(m.date,{day:'numeric',month:'short',year:'numeric'}))}</div><div class="sub">${MEASURES.filter(([k])=>m[k]>0).map(([k,l])=>`${l} ${n1(m[k])}`).join(' · ')}</div></div><span></span><div class="acts"><button data-action="delMeasure" data-id="${esc(m.date)}" aria-label="Delete measurements from ${esc(m.date)}">✕</button></div></div>`).join('')}</details>` : ''}
     <h3>Progress photos</h3>
-    <div class="muted small">Private: only you can see them. Same spot, light and pose each time makes changes easy to see.</div>
+    <div class="muted small">Private: only you can see them.</div>
     <div class="row"><select id="ph_pose"><option value="front">Front</option><option value="side">Side</option><option value="back">Back</option></select><label class="btn ghost sm" style="cursor:pointer">Add photo<input type="file" accept="image/*" id="ph_file" hidden></label>${(S.photos||[]).length>1?'<button class="btn ghost sm" data-action="photoCompare">Compare</button>':''}</div>
     <div class="status" id="ph_msg"></div>
     <div class="photos">${(S.photos||[]).map(p=>`<figure class="ph"><img src="${esc(p.url||'')}" alt="${esc(p.pose)} photo, ${esc(p.date)}" loading="lazy"><figcaption>${esc(fmtDate(p.date,{day:'numeric',month:'short'}))} · ${esc(p.pose)}<button class="linkbtn" data-action="photoDel" data-path="${esc(p.path)}" aria-label="Delete photo">✕</button></figcaption></figure>`).join('') || (S.photosLoaded ? '<div class="muted small">No photos yet.</div>' : '')}</div>`;
@@ -3089,7 +3115,7 @@ function render(){
   if (!isToday && S.view!=='setup') html += `<div class="pastbar"><span>Viewing <b>${esc(fmtDate(S.date,{weekday:'long',day:'numeric',month:'short'}))}</b></span><span class="spacer"></span><button class="linkbtn" data-action="goToday">Back to today</button></div>`;
   html += S.view==='setup'&&S.setup?viewSetup():S.view==='gym'?viewGym():S.view==='trends'?viewTrends():S.view==='coach'||S.view==='health'?viewProfile():S.view==='profile'?viewProfile():viewToday();
   $('#main').innerHTML = html;
-  const ta2 = $('#logText'); if (ta2) { ta2.value = draft; if (hadFocus) ta2.focus(); }
+  const ta2 = $('#logText'); if (ta2) { ta2.value = draft; if (hadFocus) ta2.focus(); if (draft) foodSugg(); }
   document.querySelectorAll('.profForm').forEach(f => { f.onsubmit = onProfileSubmit; });
   autoStack();
   if (S.rev !== S.boardRev) { S.boardRev = S.rev; publishBoard(); }
@@ -3197,6 +3223,12 @@ document.addEventListener('click', ev => {
     case 'relog': { let f=null; for (const [,d] of S.days) { f=(d.foods||[]).find(y=>y.id===b.dataset.id); if (f) break; } if(!f) break;
       const copy={...structuredClone(f), id:uid(), time:nowTime(), meal:guessMeal()}; const date=S.date;
       writeDay(date, d=>d.foods.push(copy)); toast(`Logged ${f.name}`, () => writeDay(date, d => { d.foods=d.foods.filter(y=>y.id!==copy.id); })); break; }
+    case 'suggFood': { const x = (S.fsugg||[])[+b.dataset.i]; if (!x) break; const f = x.f, date = S.date;
+      const copy = {...structuredClone(f), id:uid(), time:nowTime(), meal:guessMeal()};
+      // Take the typed part out of the box; anything typed before it stays.
+      const ta = $('#logText'); if (ta) { const parts = ta.value.split(/([,;\n])/); parts.pop(); ta.value = parts.join('').replace(/[,;\s]+$/,''); ta.value += ta.value ? ', ' : ''; }
+      writeDay(date, d=>d.foods.push(copy)); toast(`Logged ${f.name}`, () => writeDay(date, d => { d.foods=d.foods.filter(y=>y.id!==copy.id); }));
+      if (ta) ta.focus(); break; }
     case 'resetGoal': { const p={...prof()}; p[b.dataset.key]=null; saveProfile(p); toast('Back to the suggested goal.'); break; }
     case 'rmFood': { const k=b.dataset.key; const f=(S.myFoods||{})[k]; if(!f) break; const m={...S.myFoods}; delete m[k]; S.myFoods=m; S.myFoodsVer++; if (S.db) S.db.doc('foods/'+k).delete().catch(()=>{}); render(); toast(`Removed ${f.name} from your food list`); break; }
     case 'importIndb': importIndb(); break;
@@ -3270,6 +3302,7 @@ document.addEventListener('change', ev => { const t = ev.target, w = S.workout; 
   if (t.dataset.wkrest!==undefined) { const e = w.exercises[+t.dataset.wkrest]; if (e) { e.rest = t.value || null; wkSave(); } } });
 document.addEventListener('change', ev => bindInput(ev.target));
 function bindInput(el){
+  if (el.id==='logText') { foodSugg(); return; }
   if (el.id==='exq') { S.exq = el.value; const r=$('#exres'); if (r) r.innerHTML = libResults(el.value); return; }
   const path = el.dataset && el.dataset.bind; if (!path) return;
   const v = el.type==='checkbox' ? el.checked : el.value;
@@ -3689,13 +3722,12 @@ function boardHtml(){
   const place = r => rows.indexOf(r)+1;
   return `<section class="panel board" aria-label="Leaderboard">
     <div class="panel-head"><h2>This week’s leaderboard</h2><span class="muted small">${esc(fmtDate(monday,{day:'numeric',month:'short'}))} – ${esc(fmtDate(addDays(monday,6),{day:'numeric',month:'short'}))}</span></div>
-    <div class="muted small">Goal: ${BOARD_WORKOUTS}+ workouts, your own protein target (average over days you logged food), your daily step goal, and about ${n0(BOARD_BURN_WEEK)} kcal burned by moving over the week (training, sports and steps; steps and kcal count the days so far). Score = a quarter each.</div>
     ${!rows.length ? `<div class="empty">${off?'You’re hidden from the leaderboard.':'Nobody is on the board yet this week. Log a workout or a meal and you’ll appear.'}</div>` : `
     <div class="podium${top.length<3?' few':''}">${order.map(r=>`<div class="pod p${place(r)}${r.user_id===me?' me':''}">
         <div class="medal">${place(r)}</div><div class="pname">${esc(r.name||'Member')}${r.user_id===me?' <span class="muted">(you)</span>':''}</div>
         <div class="pscore">${r.score}<small>/100</small></div><div class="pline">${esc(line(r))}</div>${tag(r)}<div class="pblock"></div></div>`).join('')}</div>
     ${rest.length ? fold('lb-rest', 'Everyone else', `${rest.length} ${rest.length===1?'person':'people'}`, rest.map(r=>`<div class="brow${r.user_id===me?' me':''}"><span class="brank">${place(r)}</span><div><b>${esc(r.name||'Member')}${r.user_id===me?' <span class="muted">(you)</span>':''}</b><div class="muted small">${esc(line(r))}</div></div>${tag(r)||'<span></span>'}<b class="num">${r.score}</b></div>`).join(''), 'inline') : ''}`}
-    <label class="check small"><input type="checkbox" data-action="boardToggle" ${off?'':'checked'}> Show me on the leaderboard (only your name and these weekly numbers are shared)</label>
+    <label class="check small"><input type="checkbox" data-action="boardToggle" ${off?'':'checked'}> Show me on the leaderboard</label>
   </section>`;
 }
 
@@ -3750,7 +3782,7 @@ function feedHtml(){
   return `<section class="panel feed" aria-label="Workout feed"><div class="panel-head"><h2>Workout feed</h2>${hideBtn('feed','workout feed')}</div>
     ${isHidden('feed') ? '' : `${posts.length ? shown.map(card).join('') : `<div class="empty">${S.feedLoaded?'No workouts in the last 30 days. Finish a workout in Train and it shows up here.':'Loading…'}</div>`}
     ${posts.length > shown.length ? `<div class="row"><button class="btn ghost sm" data-action="feedMore">Show ${posts.length-shown.length} more</button></div>` : ''}
-    <label class="check small"><input type="checkbox" data-action="feedToggle" ${off?'':'checked'}> Show my finished workouts here (name, exercises, best sets and PRs)</label>`}
+    <label class="check small"><input type="checkbox" data-action="feedToggle" ${off?'':'checked'}> Show my finished workouts here</label>`}
   </section>`;
 }
 
