@@ -4,7 +4,7 @@ const ok=(n,p,i='')=>console.log(`${p?'PASS':'FAIL'}  ${n}${i?'  — '+i:''}`);
 const members = (mainIsMe) => [
   {user_id:'u1',email:'you@example.com',name:'Harshith B',provider:'email',status:'approved',is_admin:true,primary_owner:mainIsMe,requested_at:'2026-09-26T10:00:00Z',decided_at:'2026-09-26T10:00:00Z'},
   {user_id:'o2',email:'main@example.com',name:'Main Owner',provider:'email',status:'approved',is_admin:true,primary_owner:!mainIsMe,requested_at:'2026-09-25T10:00:00Z',decided_at:'2026-09-25T10:00:00Z'},
-  {user_id:'n1',email:'rahul@gmail.com',name:'Rahul K',provider:'email',status:'approved',is_admin:false,primary_owner:false,requested_at:'2026-09-27T08:00:00Z',decided_at:'2026-09-27T09:00:00Z'}];
+  {user_id:'n1',email:'rakshithkumar12321@gmail.com',name:'rakshithkumar12321@gmail.com',provider:'email',status:'approved',is_admin:false,primary_owner:false,requested_at:'2026-09-27T08:00:00Z',decided_at:'2026-09-27T09:00:00Z'}];
 async function open(b, ms){ const ctx=await b.newContext({viewport:{width:390,height:844}}); const p=await ctx.newPage(); p.errs=[]; p.on('pageerror',e=>p.errs.push(e.message)); p.on('dialog',d=>d.accept());
   await p.addInitScript(`window.__SEED__=${JSON.stringify(seed)}; window.__MEMBER__={status:'approved',is_admin:true}; window.__MEMBERS__=${JSON.stringify(ms)};`);
   await p.route(/functions\/v1\//, r=>r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:'{"ok":true,"passkeys":[]}'}));
@@ -23,7 +23,11 @@ const T = async (p,s)=>((await p.textContent(s).catch(()=>''))||'').replace(/\s+
     await p.click('[data-action=memberAdmin][data-id=n1]'); await p.waitForTimeout(500);
     const rpc = await p.evaluate(()=>window.__rpc.slice(-1)[0]);
     ok('Make co-owner calls set_member_admin', rpc && rpc[0]==='set_member_admin' && rpc[1].p_user==='n1' && rpc[1].p_admin===true, JSON.stringify(rpc));
-    ok('Rahul now shows as co-owner', /Rahul K co-owner/.test(await T(p,'[data-fold=s-people] .fold-body')));
+    ok('Rakshith now shows as co-owner', /rakshithkumar12321@gmail\.com co-owner/.test(await T(p,'[data-fold=s-people] .fold-body')));
+    const over = await p.$$eval('[data-fold=s-people] .item', (xs) => { const panel = document.querySelector('[data-fold=s-people]').getBoundingClientRect(); return xs.filter(x => [...x.querySelectorAll('button')].some(bt => bt.getBoundingClientRect().right > panel.right + 1)).length; });
+    ok('Every button fits inside the panel', over === 0, String(over));
+    ok('Page doesn’t scroll sideways', await p.evaluate(()=>document.documentElement.scrollWidth <= innerWidth));
+    await (await p.$('[data-fold=s-people]')).screenshot({path:__dirname+'/people.png'});
     ok('no errors', !p.errs.length, p.errs.join('|')); await ctx.close(); }
   { const {ctx,p} = await open(b, members(false));
     ok('A co-owner can’t add or remove co-owners', !(await p.$('[data-action=memberAdmin]')));
