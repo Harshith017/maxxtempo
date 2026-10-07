@@ -1434,18 +1434,30 @@ function startRest(sec){
   sec = sec || Number(prof().rest_default) || 90;
   S.rest = {end: Date.now() + sec*1000, total: sec}; tickRest();
 }
-function stopRest(){ S.rest = null; clearInterval(restT); restT = null; const el = $('#restbar'); if (el) el.hidden = true; document.body.classList.remove('resting'); }
+// +15 / +30 / +60 add to the time that's left (and back to a full bar if it had run out).
+function addRest(sec){
+  if (!S.rest) return startRest(sec);
+  const left = Math.max(0, S.rest.end - Date.now());
+  S.rest = {end: Date.now() + left + sec*1000, total: Math.max(S.rest.total, Math.round(left/1000) + sec)}; tickRest();
+}
+function stopRest(){ S.rest = null; clearInterval(restT); restT = null; const el = $('#restbar'); if (el) { el.hidden = true; el.dataset.mode = ''; } document.body.classList.remove('resting'); }
+// The bar is built once per state (counting / over) and only its text and progress change
+// while it counts: rebuilding the buttons every tick swallowed taps on phones.
 function tickRest(){
   const el = $('#restbar'); if (!el || !S.rest) return;
   clearInterval(restT);
   const draw = () => {
     if (!S.rest) return;
-    const left = Math.max(0, Math.round((S.rest.end - Date.now())/1000));
+    const left = Math.max(0, Math.round((S.rest.end - Date.now())/1000)), mode = left > 0 ? 'run' : 'over';
     el.hidden = false; document.body.classList.add('resting');
-    el.innerHTML = left > 0
-      ? `<span class="rt" aria-live="off">Rest <b>${Math.floor(left/60)}:${pad(left%60)}</b></span><span class="rtbar"><i style="width:${(1-left/S.rest.total)*100}%"></i></span>${[60,90,120].map(v=>`<button data-action="restSet" data-s="${v}" aria-label="Rest ${v} seconds">${v}s</button>`).join('')}<button data-action="restStop" aria-label="Stop the rest timer">✕</button>`
-      : `<span class="rt" role="status"><b>Rest over</b>: next set!</span><span class="spacer"></span><button data-action="restStop">OK</button>`;
-    if (left <= 0) { clearInterval(restT); restT = null; restDone(); }
+    if (el.dataset.mode !== mode) {
+      el.dataset.mode = mode;
+      el.innerHTML = mode === 'run'
+        ? `<span class="rt" aria-live="off">Rest <b class="rtime"></b></span><span class="rtbar"><i></i></span>${[15,30,60].map(v=>`<button data-action="restAdd" data-s="${v}" aria-label="Add ${v} seconds">+${v}s</button>`).join('')}<button data-action="restStop" aria-label="Stop the rest timer">✕</button>`
+        : `<span class="rt" role="status"><b>Rest over</b>: next set!</span><span class="spacer"></span><button data-action="restAdd" data-s="30" aria-label="Add 30 seconds">+30s</button><button data-action="restStop">OK</button>`;
+    }
+    if (mode === 'run') { el.querySelector('.rtime').textContent = `${Math.floor(left/60)}:${pad(left%60)}`; el.querySelector('.rtbar i').style.width = `${(1-left/S.rest.total)*100}%`; }
+    else { clearInterval(restT); restT = null; restDone(); }
   };
   draw(); restT = setInterval(draw, 500);
 }
@@ -1457,6 +1469,10 @@ function restDone(){
   setTimeout(() => { if (S.rest && Date.now() >= S.rest.end) stopRest(); }, 15000);
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState==='visible' && S.rest) tickRest(); });
+// While typing, the phone keyboard pushes the box up to where the rest bar sits: move the bar to the top.
+const isField = el => el && el.matches && el.matches('input:not([type=checkbox]):not([type=radio]),select,textarea');
+document.addEventListener('focusin', ev => { if (isField(ev.target)) document.body.classList.add('typing'); });
+document.addEventListener('focusout', () => setTimeout(() => { if (!isField(document.activeElement)) document.body.classList.remove('typing'); }, 50));
 function workoutFold(){
   const p = prof();
   return `<label class="check"><input type="checkbox" data-action="restToggle" ${restOn()?'checked':''}> Show a rest timer after I log sets</label>
@@ -3321,7 +3337,7 @@ document.addEventListener('click', ev => {
       if (!est) break; if (!sportFromText(it.entry, it.date, sportKey(it.name))) { est.res.title = it.name; est.res.assumptions = `Estimated like ${est.name.toLowerCase()}. ` + est.res.assumptions; }
       S.queue.shift(); saveActivity(it, est.res).then(() => { render(); if (S.queue.length) runQueue(); }); break; }
     case 'editSupp': openSuppEdit(b.dataset.id||''); break;
-    case 'restSet': startRest(+b.dataset.s); break;
+    case 'restAdd': addRest(+b.dataset.s); break;
     case 'restStop': stopRest(); break;
     case 'tempPw': tempPassword(b.dataset.id, b.dataset.name||'this member'); break;
     case 'mustChangeSave': mustChangeSave(); break;
@@ -3905,12 +3921,12 @@ function peopleFold(){
   const me = S.user?.id, iAmMain = ms.some(x=>x.user_id===me && x.primary_owner);
   const role = x => x.primary_owner ? 'owner' : x.is_admin ? 'co-owner' : '';
   const who = x => `<div><div class="nm">${esc(x.name||x.email||'Unknown')}${role(x)?` <span class="tag">${role(x)}</span>`:''}${x.user_id===me?' <span class="muted small">(you)</span>':''}</div><div class="sub">${esc(x.email||'')}${x.provider?` · ${esc(x.provider==='email'?'email':x.provider[0].toUpperCase()+x.provider.slice(1))}`:''} · ${esc(fmtDate((x.decided_at||x.requested_at).slice(0,10),{day:'numeric',month:'short'}))}</div></div>`;
-  return `${pend.length ? `<h3>Waiting for you</h3>${pend.map(x=>`<div class="item">${who(x)}<span></span><div class="acts"><button class="approve" data-action="memberSet" data-id="${x.user_id}" data-s="approved">Approve</button><button data-action="memberSet" data-id="${x.user_id}" data-s="declined">Decline</button></div></div>`).join('')}` : '<div class="muted small">Nobody is waiting. When someone signs in for the first time, they appear here for you to approve.</div>'}
-    <h3>Approved</h3>${appr.map(x=>`<div class="item">${who(x)}<span></span><div class="acts">${x.is_admin
+  return `${pend.length ? `<h3>Waiting for you</h3>${pend.map(x=>`<div class="item person">${who(x)}<span></span><div class="acts"><button class="approve" data-action="memberSet" data-id="${x.user_id}" data-s="approved">Approve</button><button data-action="memberSet" data-id="${x.user_id}" data-s="declined">Decline</button></div></div>`).join('')}` : '<div class="muted small">Nobody is waiting. When someone signs in for the first time, they appear here for you to approve.</div>'}
+    <h3>Approved</h3>${appr.map(x=>`<div class="item person">${who(x)}<span></span><div class="acts">${x.is_admin
       ? (iAmMain && !x.primary_owner ? `<button data-action="memberAdmin" data-id="${x.user_id}" data-on="0" data-name="${esc(x.name||x.email||'')}">Remove co-owner</button>` : '')
       : `<button data-action="tempPw" data-id="${x.user_id}" data-name="${esc(x.name||x.email||'')}" aria-label="Set a temporary password for ${esc(x.name||x.email||'')}">Password</button>${iAmMain?`<button data-action="memberAdmin" data-id="${x.user_id}" data-on="1" data-name="${esc(x.name||x.email||'')}">Make co-owner</button>`:''}<button data-action="memberSet" data-id="${x.user_id}" data-s="declined">Remove</button>`}</div></div>`).join('')}
     <div class="muted small">Forgot their password? Tap Password to make a temporary one, and give it to them privately. They choose their own next time they sign in.</div>
-    ${dec.length?`<h3>Declined</h3>${dec.map(x=>`<div class="item">${who(x)}<span></span><div class="acts"><button data-action="memberSet" data-id="${x.user_id}" data-s="approved">Approve</button></div></div>`).join('')}`:''}
+    ${dec.length?`<h3>Declined</h3>${dec.map(x=>`<div class="item person">${who(x)}<span></span><div class="acts"><button data-action="memberSet" data-id="${x.user_id}" data-s="approved">Approve</button></div></div>`).join('')}`:''}
     <div class="row"><button class="btn ghost sm" data-action="reviewPeople">Refresh</button></div>`;
 }
 async function tempPassword(id, name){
