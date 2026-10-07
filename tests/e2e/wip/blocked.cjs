@@ -4,7 +4,7 @@ const ok=(n,p,i='')=>console.log(`${p?'PASS':'FAIL'}  ${n}${i?'  — '+i:''}`);
 (async()=>{ const b=await chromium.launch(); const errs=[];
   const run = async (reachable, ua) => { const ctx = await b.newContext({viewport:{width:390,height:844}, userAgent: ua}); const p=await ctx.newPage(); p.on('pageerror',e=>errs.push(e.message));
     await p.addInitScript(`window.__NOSESSION__=true; window.__NETERR__=true;`);
-    await p.route(/supabase\.co\/auth\/v1\/health/, r => reachable ? r.fulfill({status:401, body:'{}'}) : r.abort('namenotresolved'));
+    await p.route(/(supabase\.co|workers\.dev)\/auth\/v1\/health/, r => reachable ? r.fulfill({status:401, body:'{}'}) : r.abort('namenotresolved'));
     await p.route(/functions\/v1\//, r=>r.fulfill({status:200,contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:'{"ok":true}'}));
     await p.route(/^https:\/\/(?!cdn\.jsdelivr)(?!.*functions\/v1)(?!.*auth\/v1\/health)/, r=>r.abort());
     await p.route(/cdn\.jsdelivr\.net\/npm\/@supabase/, r=>r.fulfill({contentType:'application/javascript', body:stub}));
