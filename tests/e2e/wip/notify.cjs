@@ -1,5 +1,5 @@
 const { chromium } = require('/opt/node22/lib/node_modules/playwright'); const fs=require('fs');
-const stub = fs.readFileSync(__dirname+'/stub4.js','utf8'); const seed = JSON.parse(fs.readFileSync(__dirname+'/seed.json','utf8'));
+const stub = fs.readFileSync(__dirname+'/stub-push.js','utf8'); const seed = JSON.parse(fs.readFileSync(__dirname+'/seed.json','utf8'));
 const out=[]; const ok=(n,p,i='')=>out.push(`${p?'PASS':'FAIL'}  ${n}${i?'  — '+i:''}`);
 const KEY='BFj5hW0KMNeX8ceBzgCSQV0ba6pjYTIv_nToin6gY4ogFWGxhvkCY_LVxFf5xYfFBD9cp7FrPBngpvhNkCkL4sE';
 const fakes = standalone => `
