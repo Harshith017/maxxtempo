@@ -489,18 +489,24 @@ const sweetName = n => SWEET_RE.test(n||'') && !NOT_SWEET_RE.test(n||'');
 // Added sugar per 100 g of a food from any source.
 function addedPer100(f){
   const per = f.per || {};
+  // The table wins for built-in foods (and ones learned from them), whatever their name sounds like.
+  if (FOOD_ADDED_SUGAR && f.name in FOOD_ADDED_SUGAR && /^(db|builtin|mine)$/.test(f.src||'db')) return FOOD_ADDED_SUGAR[f.name];
   if (per.added_sugar != null) return per.added_sugar;
   if (f.src==='indb') return per.sugar || 0;                                  // INDB records free (added) sugar
   if (FOOD_ADDED_SUGAR && f.name in FOOD_ADDED_SUGAR) return FOOD_ADDED_SUGAR[f.name];
   if (f.src==='usda') return (/^(Sweets|Baked Products|Breakfast Cereals|Snacks|Fast Foods|Beverages)$/.test(f.cat||'') || sweetName(f.name) || sweetName((f.aliases||[])[0])) && !NOT_SWEET_RE.test(f.name) ? (per.sugar||0) : 0;
   if (f.src==='off') return per.sugar || 0;                                    // set from the label in offToFood
-  if (!f.src || f.src==='builtin') return 0;                                   // built-in foods not in the table have none
+  if (!f.src || f.src==='builtin' || f.src==='db') return 0;                   // built-in foods not in the table have none
   return sweetName(f.name) ? (per.sugar||0) : 0;
 }
 // Added sugar of a logged food; older entries without it are judged by name.
+// Built-in foods use the table even when logged earlier, so a fix there corrects past days too
+// (the AI's own estimate and label or barcode values are kept).
 function addedSugar(f){
+  const table = FOOD_ADDED_SUGAR && f.name in FOOD_ADDED_SUGAR && f.grams > 0;
+  if (table && /^(food-db|food-builtin|food-mine|my-food)$/.test(f.source||'')) return (FOOD_ADDED_SUGAR[f.name]||0) * f.grams / 100;
   if (f.added_sugar != null) return f.added_sugar;
-  if (FOOD_ADDED_SUGAR && f.name in FOOD_ADDED_SUGAR) return (FOOD_ADDED_SUGAR[f.name]||0) * (f.grams||0) / 100;
+  if (table) return (FOOD_ADDED_SUGAR[f.name]||0) * f.grams / 100;
   return sweetName(f.name) ? (f.sugar||0) : 0;
 }
 const FOODS = FOOD_ROWS.map(r => {
@@ -1817,6 +1823,10 @@ function viewToday(){
           // Unsaturated has no target: show its share of the fat eaten instead.
           if (kind==='info') return `<div class="mrow sub"><span class="sw"></span><span class="ml">${l}</span><span class="mv">${n0(v)}<span class="muted"> g</span></span><span class="mp muted">${t.fat_split>0?Math.round(v/t.fat_split*100)+'%':''}</span><span class="muted small" title="${t.fat_split<t.fat-0.5?'Restaurant meals that don’t give a saturated / unsaturated split are left out':''}">${t.fat_split<t.fat-0.5?'of known fat':'of fat'}</span></div>`;
           const st = hasFood ? goalState(v,tg,kind) : null;
+          if (l==='Added sugar' && v >= 0.5) {
+            const from = (day.foods||[]).map(f=>[f.name, addedSugar(f)]).filter(x=>x[1]>=0.5).sort((a,b)=>b[1]-a[1]);
+            return `<button type="button" class="mrow mbtn" data-action="sugarWhy" aria-expanded="${!!S.sugarWhy}"><span class="sw" style="background:${c}"></span><span class="ml">${l}</span><span class="mv">${n0(v)}<span class="muted"> / ≤${n0(tg)} ${u}</span></span><span class="mp" style="color:${st?stText(st):'var(--ink-3)'}">${Math.round(P(v,tg))}%</span>${statePill(st)||'<span></span>'}</button>${S.sugarWhy?`<div class="sugwhy">${from.map(([n,g])=>`<span>${esc(n)}</span><b>${n1(g)} g</b>`).join('')}</div>`:''}`;
+          }
           return `<div class="mrow${sub?' sub':''}"><span class="sw" style="background:${c}"></span><span class="ml">${l}</span><span class="mv">${n0(v)}<span class="muted"> / ${kind==='limit'?'≤':''}${n0(tg)} ${u}</span></span><span class="mp" style="color:${st?stText(st):'var(--ink-3)'}">${hasFood?Math.round(P(v,tg)):0}%</span>${statePill(st)||'<span></span>'}</div>`; }).join('')}</div>
         <div class="stat3">
           <div data-tip="${esc(burnTip(B))}"><b style="color:${stText('plus')}">${emptyDay?'—':n0(B.total)}</b><span>kcal burned</span></div>
@@ -3440,6 +3450,7 @@ document.addEventListener('click', ev => {
     case 'restAdd': addRest(+b.dataset.s); break;
     case 'restStop': stopRest(); break;
     case 'pushTest': pushTest(); break;
+    case 'sugarWhy': S.sugarWhy = !S.sugarWhy; render(); break;
     case 'tempPw': tempPassword(b.dataset.id, b.dataset.name||'this member'); break;
     case 'mustChangeSave': mustChangeSave(); break;
     case 'forgotPw': S.auth={...S.auth, err:false, msg:'This app doesn’t send reset emails to members. Ask the owner to set a temporary password for you (they tap Password next to your name in People & approvals). Sign in with it and you’ll choose a new one. If you turned on Face ID or fingerprint, you can use that instead.'}; render(); break;

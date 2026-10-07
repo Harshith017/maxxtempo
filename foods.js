@@ -162,6 +162,7 @@ const FOOD_ADDED_SUGAR = {
   'Cornflakes': 8, 'Muesli': 10, 'Cola': 10.6, 'Orange juice': 8.4, 'Sweet lassi': 12,
   'Tea with milk & sugar': 6, 'Coffee with milk & sugar': 5.5, 'Peanut butter': 5,
   'White bread': 3, 'Brown bread': 3, 'Pav': 2, 'Veg burger': 3, 'Pizza': 1.5,
+  'Yoga Bar High Protein Oats Dark Chocolate': 0,   // label: no added sugar (its sugar is from the oats, milk solids and chocolate)
 };
 
 const api = { FOOD_MICRO_ORDER, FOOD_ROWS, FOOD_ALCOHOL, FOOD_ADDED_SUGAR };
