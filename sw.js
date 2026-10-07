@@ -1,6 +1,6 @@
 /* MaxxTempo service worker: the app opens offline after the first visit.
    Bump VERSION when shipping changes. */
-const VERSION = 'fuel-lift-v64';
+const VERSION = 'fuel-lift-v65';
 const SHELL = ['./', 'index.html', 'boot.js', 'config.js', 'calc.js', 'foods.js', 'exercises.js', 'sports.js', 'label.js', 'restaurants.js', 'wefit.js', 'backend.js', 'app.js', 'manifest.json', 'icon-192.png', 'icon-180.png', 'icon-512.png'];
 const LIB = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js';
 
@@ -37,5 +37,23 @@ self.addEventListener('fetch', e => {
     // Opaque copies can't be integrity-checked, so only fonts are kept that way.
     if (res && (res.ok || (res.type === 'opaque' && req.destination !== 'script'))) cache.put(req, res.clone());
     return res;
+  }));
+});
+
+// Notifications the person turned on in Settings (sent by supabase/functions/push).
+self.addEventListener('push', e => {
+  let m = {}; try { m = e.data ? e.data.json() : {}; } catch { m = { body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(m.title || 'MaxxTempo', {
+    body: m.body || '', tag: m.tag || 'maxxtempo', icon: 'icon-192.png', data: { view: m.view || '' },
+  }));
+});
+// Tapping one opens the app (or brings it forward) on the right page.
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const view = (e.notification.data && e.notification.data.view) || '';
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const c = list.find(w => w.url.startsWith(self.registration.scope));
+    if (c) { c.postMessage({ type: 'open', view }); return c.focus(); }
+    return self.clients.openWindow('./' + (view ? '?view=' + encodeURIComponent(view) : ''));
   }));
 });

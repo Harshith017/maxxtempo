@@ -469,3 +469,89 @@ begin
 end $function$;
 revoke all on function public.set_member_admin(uuid, boolean) from public, anon;
 grant execute on function public.set_member_admin(uuid, boolean) to authenticated;
+
+-- 19. Notifications (supabase/functions/push). Off for everyone until they turn them on in
+--     Settings → Notifications in the Home Screen app.
+-- Phones that opted in to notifications, and which ones they want (all off unless chosen).
+create table if not exists public.push_subs (
+  endpoint   text primary key check (char_length(endpoint) < 700 and endpoint like 'https://%'),
+  user_id    uuid not null default auth.uid() references auth.users on delete cascade,
+  p256dh     text not null check (char_length(p256dh) < 200),
+  auth       text not null check (char_length(auth) < 100),
+  tz         text not null default 'Asia/Kolkata' check (char_length(tz) < 64),
+  prefs      jsonb not null default '{}'::jsonb check (pg_column_size(prefs) < 500),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists push_subs_user on public.push_subs (user_id);
+alter table public.push_subs enable row level security;
+create policy "own push subs read"   on public.push_subs for select to authenticated using ((select auth.uid()) = user_id);
+create policy "own push subs add"    on public.push_subs for insert to authenticated with check ((select auth.uid()) = user_id and (select private.is_approved()));
+create policy "own push subs change" on public.push_subs for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+create policy "own push subs remove" on public.push_subs for delete to authenticated using ((select auth.uid()) = user_id);
+
+-- Today's numbers, written by the member's own app, so reminders don't need to read the food log.
+create table if not exists public.push_state (
+  user_id   uuid primary key default auth.uid() references auth.users on delete cascade,
+  date      date not null,
+  kcal int, kcal_t int, protein int, protein_t int, fiber int, fiber_t int, steps int, steps_t int, water int, water_t int,
+  updated_at timestamptz not null default now()
+);
+alter table public.push_state enable row level security;
+create policy "own push state read"   on public.push_state for select to authenticated using ((select auth.uid()) = user_id);
+create policy "own push state add"    on public.push_state for insert to authenticated with check ((select auth.uid()) = user_id and (select private.is_approved()));
+create policy "own push state change" on public.push_state for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+
+-- A pending "rest over" alert (one per member at a time).
+create table if not exists public.push_jobs (
+  user_id uuid primary key default auth.uid() references auth.users on delete cascade,
+  send_at timestamptz not null
+);
+alter table public.push_jobs enable row level security;
+create policy "own rest alert read"   on public.push_jobs for select to authenticated using ((select auth.uid()) = user_id);
+create policy "own rest alert add"    on public.push_jobs for insert to authenticated with check ((select auth.uid()) = user_id and (select private.is_approved()) and send_at < now() + interval '30 minutes');
+create policy "own rest alert change" on public.push_jobs for update to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id and send_at < now() + interval '30 minutes');
+create policy "own rest alert remove" on public.push_jobs for delete to authenticated using ((select auth.uid()) = user_id);
+
+-- Server only: what was sent (so nothing goes twice) and the notification keys
+-- (the push function makes the key pair the first time it runs and keeps it here).
+create table if not exists public.push_sent (
+  user_id uuid not null references auth.users on delete cascade,
+  slot    text not null,
+  sent_at timestamptz not null default now(),
+  primary key (user_id, slot)
+);
+alter table public.push_sent enable row level security;
+create table if not exists public.push_config (
+  id       int primary key check (id = 1),
+  cron_key text not null,
+  vapid    jsonb
+);
+alter table public.push_config enable row level security;
+insert into public.push_config (id, cron_key) values (1, encode(extensions.gen_random_bytes(32), 'hex')) on conflict (id) do nothing;
+revoke all on public.push_sent, public.push_config from anon, authenticated;
+
+-- Every 15 s: call the push function when a rest timer ends within 15 s, and at
+-- :00/:30 UTC (whole local hours, India included) for the daily reminders.
+-- Replace the project URL below with your own.
+create extension if not exists pg_cron;
+create extension if not exists pg_net with schema extensions;
+create or replace function private.push_tick() returns void
+language plpgsql security definer set search_path = '' as $$
+declare
+  n timestamptz := now();
+  daily boolean := extract(minute from n at time zone 'utc')::int % 30 = 0 and extract(second from n) < 15;
+  k text;
+begin
+  if not daily and not exists (select 1 from public.push_jobs where send_at <= n + interval '15 seconds') then
+    return;
+  end if;
+  select cron_key into k from public.push_config where id = 1;
+  perform net.http_post(
+    url := 'https://idmvlecpdgtiyjeikphi.supabase.co/functions/v1/push',
+    body := jsonb_build_object('action', 'tick', 'daily', daily),
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-key', k),
+    timeout_milliseconds := 60000);
+end $$;
+revoke all on function private.push_tick() from public, anon, authenticated;
+select cron.schedule('push-tick', '15 seconds', 'select private.push_tick()');

@@ -1426,21 +1426,120 @@ function latestWeightDate(){ let d=''; for (const [k,v] of S.days) if (v.weight_
 function setStatus(msg, err=false){ S.status=msg; S.statusErr=err; const el=$('#logStatus'); if (el){ el.textContent=msg; el.classList.toggle('err',err);} }
 function clearPhoto(){ if (S.photoUrl) URL.revokeObjectURL(S.photoUrl); S.photo=null; S.photoUrl=null; }
 
+/* ---------- notifications (web push, see supabase/functions/push) ----------
+   Off until turned on, one by one, in Settings → Notifications, and only in the
+   app opened from the Home Screen (iPhone needs that, and iOS 16.4+). The server
+   sends them at set local times using the numbers this app sends it (push_state);
+   the rest timer sends its end time (push_jobs) so the alert comes even with the
+   phone locked. */
+const PUSH_KINDS = [['rest','Rest timer','when your rest is over'],['water','Water','9 am, 12, 3, 6 and 9 pm'],['protein','Protein','4 pm and 7 pm, if under target'],['fiber','Fibre','4 pm and 7 pm, if under target'],['steps','Steps','3 pm and 8 pm, if under your goal'],['kcal','Calories eaten','2 pm and 8 pm']];
+const standalone = () => { try { return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; } catch { return false; } };
+const pushReady = () => standalone() && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const pushKey = () => 'mt:push:' + (S.user?.id||'');
+function pushPrefs(){ try { return JSON.parse(localStorage.getItem(pushKey())||'{}') || {}; } catch { return {}; } }
+const pushAny = (pr = pushPrefs()) => PUSH_KINDS.some(([k]) => pr[k]);
+const b64u = s => { s = s.replace(/-/g,'+').replace(/_/g,'/'); const r = atob(s + '='.repeat((4 - s.length % 4) % 4)); return Uint8Array.from(r, c => c.charCodeAt(0)); };
+const myTz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata'; } catch { return 'Asia/Kolkata'; } };
+async function pushSave(sub, prefs){
+  const j = sub.toJSON();
+  const { error } = await SB.from('push_subs').upsert({ endpoint:j.endpoint, user_id:S.user.id, p256dh:j.keys.p256dh, auth:j.keys.auth, tz:myTz().slice(0,63), prefs, updated_at:new Date().toISOString() });
+  if (error) throw error;
+}
+function notifyFold(){
+  if (!standalone()) return `<div class="muted small">Add MaxxTempo to your Home Screen and open it from there to turn on notifications.${/iPhone|iPad/.test(navigator.userAgent)?' In Safari: Share → Add to Home Screen.':''}</div>`;
+  if (!pushReady()) return `<div class="muted small">This phone can’t show notifications from web apps.${/iPhone|iPad/.test(navigator.userAgent)?' Update to iOS 16.4 or later.':''}</div>`;
+  const pr = pushPrefs(), denied = Notification.permission === 'denied';
+  return `${denied ? `<div class="banner">Notifications are blocked. Turn them on in your phone’s Settings → Notifications → MaxxTempo.</div>` : ''}
+    ${PUSH_KINDS.map(([k,l,sub]) => `<label class="check"><input type="checkbox" data-action="pushToggle" data-k="${k}" ${pr[k]?'checked':''} ${S.pushBusy||denied?'disabled':''}><span><b>${l}</b> <span class="muted small">${sub}</span></span></label>`).join('')}
+    ${pushAny(pr) && !denied ? `<div class="row"><button class="btn ghost sm" data-action="pushTest" ${S.pushBusy?'disabled':''}>Send a test</button></div>` : ''}
+    <div class="status${S.pushErr?' err':''}" role="status">${esc(S.pushMsg||'')}</div>`;
+}
+const notifySub = () => { if (!standalone()) return 'Home Screen app only'; const n = PUSH_KINDS.filter(([k]) => pushPrefs()[k]).length; return n ? `${n} on` : 'off'; };
+async function pushToggle(kind, on, box){
+  const prefs = {...pushPrefs(), [kind]:on};
+  S.pushBusy = true; S.pushMsg = ''; S.pushErr = false;
+  try {
+    // Asked first, straight from the tap: iPhone only shows the question then.
+    if (on && Notification.permission !== 'granted' && await Notification.requestPermission() !== 'granted') throw {code:'denied'};
+    render();
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!pushAny(prefs)) {
+      if (sub) { await SB.from('push_subs').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe().catch(()=>{}); }
+      await SB.from('push_jobs').delete().eq('user_id', S.user.id);
+    } else {
+      if (!sub) { const { key } = await fnCall('push', 'key'); sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64u(key) }); }
+      await pushSave(sub, prefs);
+    }
+    try { localStorage.setItem(pushKey(), JSON.stringify(prefs)); } catch {}
+    if (on) { pushStateLast = ''; pushState(true); }
+    S.pushMsg = on ? `${PUSH_KINDS.find(([k])=>k===kind)[1]} reminders on.` : 'Turned off.';
+  } catch (e) {
+    if (box) box.checked = !on;
+    S.pushErr = true;
+    S.pushMsg = e?.code==='denied' ? 'Notifications weren’t allowed. To allow them: phone Settings → Notifications → MaxxTempo.' : e?.code==='offline' ? 'You’re offline. Try again when connected.' : 'Couldn’t change notifications. Try again.';
+  }
+  S.pushBusy = false; render();
+}
+async function pushTest(){
+  S.pushBusy = true; S.pushMsg = ''; S.pushErr = false; render();
+  try { await fnCall('push', 'test'); S.pushMsg = 'Sent. It should arrive in a few seconds.'; }
+  catch (e) { S.pushErr = true; S.pushMsg = e?.code==='offline' ? 'You’re offline.' : e?.code==='no_subscription' ? 'This phone isn’t signed up. Turn a reminder off and on again.' : 'Couldn’t send a test. Try again.'; }
+  S.pushBusy = false; render();
+}
+// On opening: keep this phone's sign-up current (time zone, choices, a renewed address).
+async function pushResync(){
+  if (!pushReady() || !pushAny() || !S.user) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub && Notification.permission === 'granted') { const { key } = await fnCall('push', 'key'); sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:b64u(key) }); }
+    if (!sub) { try { localStorage.removeItem(pushKey()); } catch {} render(); return; }
+    await pushSave(sub, pushPrefs());
+  } catch {}
+}
+// Today's numbers for the reminders (sent a few seconds after they change).
+let pushStateT = null, pushStateLast = '';
+function pushState(now){
+  if (!S.dbReady || !S.user || !SB) return;
+  const pr = pushPrefs(); if (!['water','protein','fiber','steps','kcal'].some(k => pr[k])) return;
+  clearTimeout(pushStateT);
+  pushStateT = setTimeout(async () => {
+    const date = localDate(), day = getDay(date), t = dayTotals(day), TT = dayTargets(day), H = day.health || {};
+    const r = Math.round;
+    const row = { user_id:S.user.id, date, kcal:r(t.kcal), kcal_t:r(TT.kcal), protein:r(t.protein), protein_t:r(TT.protein), fiber:r(t.fiber), fiber_t:r(TT.fiber),
+      steps:r(H.steps||0), steps_t:r(Number(prof().steps_goal)||10000), water:r(t.water), water_t:r(waterTarget(day, targets(date))) };
+    const key = JSON.stringify(row); if (key === pushStateLast) return;
+    const { error } = await SB.from('push_state').upsert({ ...row, updated_at:new Date().toISOString() }).then(x => x, e => ({ error:e }));
+    if (!error) pushStateLast = key;
+  }, now ? 0 : 3000);
+}
+// The rest timer's end, so the server can send "Rest over" with the phone locked.
+let pushRestT = null;
+function pushRest(cancel){
+  if (!S.user || !SB || !pushPrefs().rest) return;
+  clearTimeout(pushRestT);
+  pushRestT = setTimeout(() => {
+    const end = !cancel && S.rest && S.rest.end;
+    (end ? SB.from('push_jobs').upsert({ user_id:S.user.id, send_at:new Date(end).toISOString() }) : SB.from('push_jobs').delete().eq('user_id', S.user.id)).then(()=>{}, ()=>{});
+  }, 250);
+}
+
 /* ---------- rest timer (after logging sets) ---------- */
 let restT = null;
 const restOn = () => prof().rest_timer !== false;
 function startRest(sec){
   if (!restOn()) return;
   sec = sec || Number(prof().rest_default) || 90;
-  S.rest = {end: Date.now() + sec*1000, total: sec}; tickRest();
+  S.rest = {end: Date.now() + sec*1000, total: sec}; tickRest(); pushRest();
 }
 // +15 / +30 / +60 add to the time that's left (and back to a full bar if it had run out).
 function addRest(sec){
   if (!S.rest) return startRest(sec);
   const left = Math.max(0, S.rest.end - Date.now());
-  S.rest = {end: Date.now() + left + sec*1000, total: Math.max(S.rest.total, Math.round(left/1000) + sec)}; tickRest();
+  S.rest = {end: Date.now() + left + sec*1000, total: Math.max(S.rest.total, Math.round(left/1000) + sec)}; tickRest(); pushRest();
 }
-function stopRest(){ S.rest = null; clearInterval(restT); restT = null; const el = $('#restbar'); if (el) { el.hidden = true; el.dataset.mode = ''; } document.body.classList.remove('resting'); }
+function stopRest(){ if (S.rest && S.rest.end > Date.now()) pushRest(true); S.rest = null; clearInterval(restT); restT = null; const el = $('#restbar'); if (el) { el.hidden = true; el.dataset.mode = ''; } document.body.classList.remove('resting'); }
 // The bar is built once per state (counting / over) and only its text and progress change
 // while it counts: rebuilding the buttons every tick swallowed taps on phones.
 function tickRest(){
@@ -2978,6 +3077,7 @@ function viewProfile(){
       ${fold('s-review', 'Coach review', rv?`last ${esc(fmtDate(rv.date,{day:'numeric',month:'short'}))}`:'weekly check-in', reviewPanel())}
       ${fold('s-profile', 'My details', `${esc(p.sex)} · ${n1(who(localDate()).kg)} kg · ${esc((GOALS[p.goal]||{}).label||'')}`, profileForm())}
       ${fold('s-data', 'Download my data', 'Excel', dataFold())}
+      ${fold('s-notify', 'Notifications', notifySub(), notifyFold())}
       ${fold('s-connect', 'Watch &amp; health apps', p.watch_workouts?'watch on':'', connectFold())}
       ${fold('s-sources', 'Data sources', 'free &amp; open', sourcesHtml())}
       ${S.isAdmin ? fold('s-people', 'People &amp; approvals', (()=>{ const n=(S.members||[]).filter(x=>x.status==='pending').length; return n?`${n} waiting`:`${(S.members||[]).filter(x=>x.status==='approved').length} approved`; })(), peopleFold()) : ''}
@@ -3208,7 +3308,7 @@ function render(){
   const ta2 = $('#logText'); if (ta2) { ta2.value = draft; if (hadFocus) ta2.focus(); if (draft) foodSugg(); }
   document.querySelectorAll('.profForm').forEach(f => { f.onsubmit = onProfileSubmit; });
   autoStack();
-  if (S.rev !== S.boardRev) { S.boardRev = S.rev; publishBoard(); }
+  if (S.rev !== S.boardRev) { S.boardRev = S.rev; publishBoard(); pushState(); }
 }
 function onProfileSubmit(ev){
   ev.preventDefault();
@@ -3339,6 +3439,7 @@ document.addEventListener('click', ev => {
     case 'editSupp': openSuppEdit(b.dataset.id||''); break;
     case 'restAdd': addRest(+b.dataset.s); break;
     case 'restStop': stopRest(); break;
+    case 'pushTest': pushTest(); break;
     case 'tempPw': tempPassword(b.dataset.id, b.dataset.name||'this member'); break;
     case 'mustChangeSave': mustChangeSave(); break;
     case 'forgotPw': S.auth={...S.auth, err:false, msg:'This app doesn’t send reset emails to members. Ask the owner to set a temporary password for you (they tap Password next to your name in People & approvals). Sign in with it and you’ll choose a new one. If you turned on Face ID or fingerprint, you can use that instead.'}; render(); break;
@@ -3373,6 +3474,7 @@ document.addEventListener('change', ev => {
   if (el.dataset && el.dataset.action==='restDefault') saveProfile({...prof(), rest_default:+el.value});
   if (el.dataset && el.dataset.action==='boardToggle') { boardLast = ''; saveProfile({...prof(), leaderboard:el.checked}); }
   if (el.dataset && el.dataset.action==='feedToggle') saveProfile({...prof(), share_workouts:el.checked});
+  if (el.dataset && el.dataset.action==='pushToggle') pushToggle(el.dataset.k, el.checked, el);
 });
 document.addEventListener('toggle', ev => { const k = ev.target.dataset && ev.target.dataset.fold; if (!k) return;
   if (ev.target.open) S.openFolds.add(k); else S.openFolds.delete(k);
@@ -3941,6 +4043,8 @@ async function tempPassword(id, name){
   d.showModal(); $('#tpClose').onclick = () => d.close(); $('#tpCopy').onclick = () => copyText(r.password, 'Password');
 }
 async function signOut(){
+  try { const sub = pushReady() && await navigator.serviceWorker.ready.then(r => r.pushManager.getSubscription());
+    if (sub) { await SB.from('push_subs').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); } localStorage.removeItem(pushKey()); } catch {}
   if (S.db) await S.db.forget();
   await SB.auth.signOut(); location.reload();
 }
@@ -4005,12 +4109,16 @@ async function startFor(user){
   });
   await db.start();
   S.dbReady = true; S.dbState='on'; render();
-  refreshUsage();
+  refreshUsage(); pushResync(); pushState();
 }
 
 document.addEventListener('visibilitychange', () => { if (document.visibilityState!=='visible') return;
   if (S.isAdmin) loadMembers();
   if (S.pendingUser && S.memberInfo?.status!=='declined') startFor(S.pendingUser); });
+// A tapped notification opens Today or Train.
+const NOTE_VIEW = {food:'today', today:'today', gym:'gym'};
+try { const v = NOTE_VIEW[new URLSearchParams(location.search).get('view')]; if (v) { S.view = v; history.replaceState(null, '', location.pathname); } } catch {}
+if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', ev => { const v = ev.data && ev.data.type==='open' && NOTE_VIEW[ev.data.view]; if (v && S.user) setView(v); });
 try { window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable?.().then(ok => { S.bioOK = !!ok; render(); }).catch(()=>{}); } catch {}
 render();
 (async () => {
