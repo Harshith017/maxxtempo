@@ -9,6 +9,6 @@ window.FL_CONFIG = {
   CLAUDE: true,            // false to hide Claude features until the edge function is deployed
   // The Cloudflare Worker that relays to Supabase (cloudflare/README.md). Some Indian
   // networks block supabase.co; when this is set, the app sends everything through it.
-  SUPABASE_PROXY_URL: '',
+  SUPABASE_PROXY_URL: 'https://maxxtempo-api.harshithhb17.workers.dev',
 };
 window.FL_CONFIG.API_URL = (window.FL_CONFIG.SUPABASE_PROXY_URL || window.FL_CONFIG.SUPABASE_URL).replace(/\/$/, '');
