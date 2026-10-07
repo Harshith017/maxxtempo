@@ -359,7 +359,7 @@ Read the entry${hasPhoto?' and the attached photo of the food':''} and reply wit
 Rules:
 - One entry per distinct food. Every nutrient number is the TOTAL for that portion, not per 100 g. Use realistic values from standard food composition data (IFCT 2017 for Indian foods, USDA otherwise).
 - Check each food: kcal must match 4 × protein + 4 × carbs + 9 × fat + 7 × alcohol within about 10%. Alcoholic drinks: put the grams of alcohol in alcohol_g (a 330 ml beer at 5% has about 13 g).
-- sugar_g is all sugars. added_sugar_g is only sugar that was added: sugar, jaggery, honey, syrups, sweets and desserts, ice cream, cakes, biscuits, chocolate, sweetened drinks, fruit juices and sweetened milk drinks, and dates, raisins or grapes used to sweeten a dish. Sugar naturally in whole fruit, vegetables, plain milk, plain curd, eggs, rotis, rice, dal, meat and nuts is 0 added sugar.
+- sugar_g is all sugars. added_sugar_g is only sugar that was added, as on a nutrition label: sugar, jaggery, honey, syrups, sweets and desserts, ice cream, cakes, biscuits, chocolate, sweetened drinks and fruit drinks, juice with sugar added, sweetened milk drinks, and dates, raisins or grapes used to sweeten a dish. Sugar naturally in whole fruit, fresh or 100% fruit juice with nothing added, vegetables, plain milk, plain curd, eggs, rotis, rice, dal, meat and nuts is 0 added sugar. Anything called unsweetened, no added sugar or sugar-free is 0.
 - Weights the person gives are as eaten (cooked) unless they say raw, dry or uncooked.
 - No weight given: assume a typical Indian home portion (1 roti ≈ 40 g, 1 katori dal ≈ 150 g, 1 cup cooked rice ≈ 160 g, 1 egg ≈ 50 g) and set confidence "medium".
 - From a photo: name each item, estimate the portion from visual cues (a dinner plate is about 25 cm), set confidence "medium" or "low".
@@ -489,6 +489,7 @@ const sweetName = n => SWEET_RE.test(n||'') && !NOT_SWEET_RE.test(n||'');
 // Added sugar per 100 g of a food from any source.
 function addedPer100(f){
   const per = f.per || {};
+  if (NOT_SWEET_RE.test(f.name||'')) return 0;                                  // "unsweetened", "no added sugar", "sugar-free"
   // The table wins for built-in foods (and ones learned from them), whatever their name sounds like.
   if (FOOD_ADDED_SUGAR && f.name in FOOD_ADDED_SUGAR && /^(db|builtin|mine)$/.test(f.src||'db')) return FOOD_ADDED_SUGAR[f.name];
   if (per.added_sugar != null) return per.added_sugar;
@@ -503,6 +504,7 @@ function addedPer100(f){
 // Built-in foods use the table even when logged earlier, so a fix there corrects past days too
 // (the AI's own estimate and label or barcode values are kept).
 function addedSugar(f){
+  if (NOT_SWEET_RE.test(f.name||'')) return 0;                                  // "unsweetened", "no added sugar", "sugar-free"
   const table = FOOD_ADDED_SUGAR && f.name in FOOD_ADDED_SUGAR && f.grams > 0;
   if (table && /^(food-db|food-builtin|food-mine|my-food)$/.test(f.source||'')) return (FOOD_ADDED_SUGAR[f.name]||0) * f.grams / 100;
   if (f.added_sugar != null) return f.added_sugar;
