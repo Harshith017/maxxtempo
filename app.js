@@ -1867,12 +1867,17 @@ function microsPanel(day){
   const dt = dayTotals(day), DT = dayTargets(day);
   const low = MICROS.filter(m=>m.kind!=='limit'&&DT.micros[m.key]&&dt.micros[m.key]/DT.micros[m.key]<0.5).length;
   const logged = (day.foods||[]).length || (day.supplements||[]).length;
+  // Supplements count too (the daily ones are added each morning), so say so, and show their share of each bar lighter.
+  const supps = day.supplements||[], fromSupp = {};
+  for (const m of MICROS) fromSupp[m.key] = supps.reduce((a,x)=>a+((x.micros&&x.micros[m.key])||0), 0);
+  const suppNote = supps.length ? `<p class="micnote">Includes ${esc(supps.map(x=>x.name).join(', '))}${supps.some(x=>x.auto)?', added automatically from your daily supplements':''}. Lighter bar = from supplements. <button class="linkbtn" data-action="goto" data-view="profile">Change</button></p>` : '';
   return `<section class="panel span2" aria-label="Vitamins and minerals"><div class="panel-head"><h2>Vitamins &amp; minerals</h2><span class="headr">${low&&logged&&!isHidden('mic')?`<span class="muted small">${low} low</span>`:''}${hideBtn('mic','vitamins and minerals')}</span></div>
-    ${isHidden('mic') ? '' : `<div class="facts"><div class="grid two" style="gap:0 24px">
+    ${isHidden('mic') ? '' : `${suppNote}<div class="facts"><div class="grid two" style="gap:0 24px">
       ${MICROS.map(m=>{ const v=dt.micros[m.key], tg=DT.micros[m.key]; const p=tg?v/tg*100:0; const lim=m.kind==='limit';
         const st = goalState(v, tg, lim?'limit':'more');
+        const pS = tg ? Math.min(100, fromSupp[m.key]/tg*100) : 0, pF = Math.max(0, Math.min(100, p) - pS);
         return `<div class="fr"><b>${m.label}${lim?' <span class="muted small">(limit)</span>':''}${(DT.focus||[]).includes(m.key)?' <span class="tag est">blood test</span>':''}</b><span class="amt">${fmtAmt(v,m.unit)} ${m.unit}</span><span class="dv" style="color:${stText(st)}">${Math.round(p)}%</span>
-          <div class="bar"><i style="width:${Math.min(100,p)}%;background:${stBar(st)}"></i></div></div>`; }).join('')}
+          <div class="bar"><i style="width:${pF}%;background:${stBar(st)}"></i>${pS>0?`<i class="sp" style="width:${pS}%;background:${stBar(st)}"></i>`:''}</div></div>`; }).join('')}
       </div></div>`}
   </section>`;
 }
