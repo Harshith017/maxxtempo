@@ -319,6 +319,54 @@ create policy "fix own shared foods"      on public.shared_foods for update to a
 create policy "remove own shared foods"   on public.shared_foods for delete to authenticated using (added_by = (select auth.uid()) or (select private.is_admin()));
 create index if not exists shared_foods_added_by on public.shared_foods (added_by);
 
+-- 12b. Group food list. When the AI reads a food someone typed (or someone corrects
+-- one), its name and per-100 g nutrition are shared so the next person who types
+-- it gets it instantly, without AI. Only the food is shared: never who added it,
+-- when, how much or which day it was eaten. Members can read the food columns
+-- only (added_by and updated_at stay hidden); writes go through share_food() and
+-- unshare_food(). A corrected entry replaces an AI estimate; otherwise only the
+-- person who added a food can change or remove it.
+create table if not exists public.group_foods (
+  key        text primary key check (key ~ '^[a-z0-9-]{1,60}$'),
+  name       text not null check (char_length(name) between 1 and 80),
+  aliases    jsonb not null default '[]'::jsonb check (jsonb_typeof(aliases) = 'array' and pg_column_size(aliases) < 1000),
+  per        jsonb not null check (pg_column_size(per) < 4000),   -- per 100 g: kcal, protein, carbs, fat, fiber, sugar, added_sugar, micros
+  units      jsonb not null default '{}'::jsonb check (pg_column_size(units) < 500),
+  verified   boolean not null default false,
+  added_by   uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  updated_at timestamptz not null default now(),
+  constraint group_per_sane check (
+    (per->>'kcal')::numeric between 1 and 950 and
+    coalesce((per->>'protein')::numeric, 0) between 0 and 100 and
+    coalesce((per->>'carbs')::numeric, 0) between 0 and 100 and
+    coalesce((per->>'fat')::numeric, 0) between 0 and 100)
+);
+alter table public.group_foods enable row level security;
+revoke all on public.group_foods from anon, authenticated;
+grant select (key, name, aliases, per, units, verified) on public.group_foods to authenticated;
+drop policy if exists "members read group foods" on public.group_foods;
+create policy "members read group foods" on public.group_foods for select to authenticated using ((select private.is_approved()));
+create index if not exists group_foods_added_by on public.group_foods (added_by);
+
+create or replace function public.share_food(p_key text, p_name text, p_aliases jsonb, p_per jsonb, p_units jsonb, p_verified boolean)
+returns void language plpgsql security definer set search_path = '' as $$
+begin
+  if not private.is_approved() then raise exception 'not approved' using errcode = '42501'; end if;
+  insert into public.group_foods as g (key, name, aliases, per, units, verified, added_by)
+  values (p_key, p_name, coalesce(p_aliases, '[]'::jsonb), p_per, coalesce(p_units, '{}'::jsonb), coalesce(p_verified, false), auth.uid())
+  on conflict (key) do update
+    set name = excluded.name, aliases = excluded.aliases, per = excluded.per, units = excluded.units,
+        verified = excluded.verified or g.verified, added_by = excluded.added_by, updated_at = now()
+    where (g.added_by = excluded.added_by and (excluded.verified or not g.verified))
+       or (excluded.verified and not g.verified);
+end $$;
+create or replace function public.unshare_food(p_key text)
+returns void language sql security definer set search_path = '' as $$
+  delete from public.group_foods where key = p_key and added_by = auth.uid();
+$$;
+revoke all on function public.share_food(text, text, jsonb, jsonb, jsonb, boolean), public.unshare_food(text) from public, anon;
+grant execute on function public.share_food(text, text, jsonb, jsonb, jsonb, boolean), public.unshare_food(text) to authenticated;
+
 -- 13. Progress photos: a private storage bucket. Each person's photos live in a
 -- folder named after their user id; only they can see, add or delete them.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)

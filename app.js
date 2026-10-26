@@ -149,7 +149,7 @@ const S = {
   profile:null, days:new Map(), date:localDate(), view:'today',
   gymPeriod:'week', gymEx:null, trendRange:30,
   libFoods:[], libBusy:false, libStatus:'', mcp:null,
-  myFoods:{}, myFoodsVer:0, _fidx:null, _fidxVer:-1,
+  myFoods:{}, myFoodsVer:0, groupFoods:[], _fidx:null, _fidxVer:-1,
   reports:[], repSel:null, repMarker:null, repBusy:false, repStatus:'', reviews:[], plans:[], planBusy:false, planStatus:'', planFor:null, planNote:'', revBusy:false, revStatus:'',
   queue:[], qBusy:false, qStatus:'', setup:null, setupShown:false,
   photo:null, photoUrl:null, busy:false, ctl:null, status:'', statusErr:false,
@@ -575,6 +575,8 @@ function foodIndex(){
   for (const f of Object.values(S.myFoods||{})) for (const a of [f.name, ...(f.aliases||[])]) { const k=normFood(a); if (k) idx.push({k, f, mine:true}); }
   for (const f of FOODS) for (const a of [f.name, ...f.aliases]) { const k=normFood(a); if (k) idx.push({k, f, pr:2}); }
   for (const f of (S.libFoods||[])) for (const a of [f.name, ...f.aliases]) { const k=normFood(a); if (k && k.length>=3) idx.push({k, f, pr:1}); }
+  // Foods the group's AI already read (name + per 100 g only): above the tables, below your own.
+  for (const f of (S.groupFoods||[])) for (const a of [f.name, ...(f.aliases||[])]) { const k=normFood(a); if (k && k.length>=3) idx.push({k, f, pr:2.5}); }
   for (const e of idx) if (e.mine) e.pr = 3;
   idx.sort((a,b)=> (b.k.length-a.k.length) || (b.pr-a.pr));
   S._fidx = idx; S._fidxVer = S.myFoodsVer; return idx;
@@ -619,7 +621,7 @@ function parsePart(raw){
   else { const units = f.units||{}; const u = unit || Object.keys(units)[0] || 'serving'; grams = qty * (units[u] ?? GENERIC_UNITS[u] ?? 100); }
   if (!(grams>0) || grams>5000) return null;
   const label = unit==='g'||unit==='ml' ? `${n0(grams)} ${unit}` : unit==='kg'||unit==='l' ? `${qty} ${unit}` : `${qty} ${unit || Object.keys(f.units||{})[0] || 'serving'}${qty>1&&!/s$/.test(unit||'')?'s':''}`;
-  return {food:f, grams, label, mine:!!e.mine};
+  return {food:f, grams, label, mine:!!e.mine, group:!e.mine && f.src==='group'};
 }
 /* Gym entries the built-in exercise table can read (exercises.js), with the
    names this person already uses taking over the built-in ones. */
@@ -681,13 +683,13 @@ function localParse(text, date){
       prev = null; if (r.skip) continue; if (r.water) { water += r.water; continue; }
       const k = r.grams/100, per = r.food.per; const micros={}; for (const m of MICROS) micros[m.key] = (per.micros[m.key]||0)*k;
       foods.push({id:uid(), name:r.food.name, quantity:r.label, grams:Math.round(r.grams), meal, time:nowTime(), kcal:per.kcal*k, protein:per.protein*k, carbs:per.carbs*k, fat:per.fat*k,
-        fiber:per.fiber*k, sugar:per.sugar*k, added_sugar:addedPer100(r.mine ? {...r.food, src:'mine'} : r.food)*k, alcohol:(FOOD_ALCOHOL[r.food.name]||0)*k, micros, confidence:'high', source:r.mine?'my-food':'food-db'});
+        fiber:per.fiber*k, sugar:per.sugar*k, added_sugar:addedPer100(r.mine ? {...r.food, src:'mine'} : r.food)*k, alcohol:(FOOD_ALCOHOL[r.food.name]||0)*k, micros, confidence:'high', source:r.mine?'my-food':r.group?'group-food':'food-db'});
     }
   }
   for (const e of exercises) { delete e.kind; e.source = 'exercise-db'; e.kcal = exerciseKcal(e, date); }
   return {foods, water, rest, exercises, sports};
 }
-function saveMyFood(f, extraAlias){
+function saveMyFood(f, extraAlias, share=true){
   if (!S.db || !(f.grams>0) || !f.name) return;
   const key = normFood(f.name).replace(/ /g,'-').slice(0,60); if (!key) return;
   const k = 100/f.grams; const micros={}; for (const m of MICROS) micros[m.key] = Math.round(((f.micros||{})[m.key]||0)*k*100)/100;
@@ -698,6 +700,40 @@ function saveMyFood(f, extraAlias){
   if (prev && prev.verified && !f.verified) return; // never overwrite a food the person corrected with a fresh estimate
   S.myFoods = {...(S.myFoods||{}), [key]:doc}; S.myFoodsVer=(S.myFoodsVer||0)+1;
   S.db.doc('foods/'+key).set(doc).catch(()=>{});
+  if (share) shareFood(key, doc);
+}
+/* ---------- group food list (table group_foods) ----------
+   Foods the AI read for anyone in the group (or that someone corrected) are shared as
+   name + nutrition per 100 g, so the next person who types them gets them instantly
+   without AI. Never shared: who added it, when, how much, or which day it was eaten.
+   Each person can turn this off in Settings → Sports & food list. */
+const sharesFoods = () => !!S.profile && S.profile.share_foods !== false;
+function shareFood(key, doc){
+  if (!SB || !S.user || !sharesFoods() || !doc || !(doc.per?.kcal >= 1) || doc.per.kcal > 950) return Promise.resolve();
+  if (['protein','carbs','fat'].some(k => !((doc.per[k]||0) >= 0 && (doc.per[k]||0) <= 100))) return Promise.resolve();
+  const aliases = (doc.aliases||[]).filter(a => !/^\d{6,14}$/.test(a)).slice(0,10);
+  return SB.rpc('share_food', { p_key:key, p_name:doc.name.slice(0,80), p_aliases:aliases, p_per:doc.per, p_units:doc.units||{}, p_verified:!!doc.verified })
+    .then(({ error }) => { if (error) { console.warn('share_food', error.message); return; }
+      const g = S.groupFoods.filter(x => x.key !== key); g.push(groupRow({key, ...doc, aliases}));
+      S.groupFoods = g; S.myFoodsVer = (S.myFoodsVer||0)+1; }, () => {});
+}
+const groupRow = r => ({key:r.key, name:r.name, aliases:r.aliases||[], units:r.units||{}, per:{...r.per, micros:{...(r.per?.micros||{})}}, verified:!!r.verified, src:'group'});
+async function loadGroupFoods(){
+  if (!SB || !S.user) return;
+  try { const { data, error } = await SB.from('group_foods').select('key,name,aliases,per,units,verified').limit(3000);
+    if (error || !data) return;
+    S.groupFoods = data.filter(r => r.per && r.per.kcal > 0).map(groupRow); S.myFoodsVer = (S.myFoodsVer||0)+1; render();
+    backfillGroupFoods();
+  } catch {}
+}
+// Once per person per phone: share the foods already learned before this existed.
+async function backfillGroupFoods(){
+  const flag = 'fl:gfShared:' + (S.user?.id||''); let done = false;
+  try { done = localStorage.getItem(flag) === '1'; } catch {}
+  if (done || !sharesFoods()) return;
+  const have = new Set(S.groupFoods.map(f => f.key));
+  for (const [k, f] of Object.entries(S.myFoods||{}).slice(0, 300)) if (!have.has(k) && !/^\d{6,14}$/.test(f.name||'')) await shareFood(k, f);
+  try { localStorage.setItem(flag, '1'); } catch {}
 }
 const r1 = v => Math.round((Number(v)||0)*10)/10;
 
@@ -2308,12 +2344,13 @@ async function searchFoods(q, limit=40){
   const out = [], seen = new Set();
   const add = f => { const k = normFood(f.name); if (seen.has(k) || out.length >= limit*3) return; seen.add(k); out.push(f); };
   for (const f of mine) if (hit(f.name, f.aliases)) add(f);
+  for (const f of S.groupFoods||[]) if (hit(f.name, f.aliases)) add(f);
   for (const f of FOODS) if (hit(f.name, f.aliases)) add({...f, src:'builtin'});
   for (const f of S.libFoods||[]) if (hit(f.name, f.aliases)) add(f);
   for (const f of await loadUsda()) if (hit(f.name)) add(f);
   // Relevance: exact names and names that start with what was typed first; oils, sweets and
   // baby foods only when asked for; then your own foods, the built-in table, INDB, USDA.
-  const rank = {mine:0, builtin:1, indb:2, usda:3}, qs = new Set(qw);
+  const rank = {mine:0, group:0.5, builtin:1, indb:2, usda:3}, qs = new Set(qw);
   const score = f => { const n = normFood(f.name), ws = words(f.name); let x = rank[f.src]*6 + n.length/25;
     const qj = qw.join(' ');
     if (n === qj || words(f.name).join(' ') === qj) x -= 100;
@@ -2468,7 +2505,7 @@ function openPortion(f, note){
     d.close();
     await saveEntry(S.date, {foods:[x]});
     const keep = ['usda','off','group','label'].includes(f.src);
-    if (keep) saveMyFood({...x, verified:f.src!=='usda'}, f.barcode || null);
+    if (keep) saveMyFood({...x, verified:f.src!=='usda'}, f.barcode || null, false);   // already in everyone's tables
     setStatus(`Logged ${f.name} · ${n0(x.kcal)} kcal. No AI used${keep?'; saved to your food list, so typing it next time works too':''}.`);
   };
 }
@@ -3075,7 +3112,8 @@ function accountFold(){
 function foodListHtml(){
   const list=Object.entries(S.myFoods||{}).sort((a,b)=>(b[1].updated||0)-(a[1].updated||0));
   return `${S.indbBuiltIn ? '' : `<div class="row"><button class="btn ghost sm" data-action="importIndb" ${S.libBusy?'disabled':''}>${(S.libFoods||[]).length?'Re-import INDB.xlsx':'Import 1,014 Indian recipes (INDB.xlsx)'}</button><span class="status${/isn|failed|Couldn|declined|Only|empty|Reconnect/.test(S.libStatus||'')?' err':''}">${esc(S.libStatus||'')}</span></div>`}
-    <div class="muted small">${FOODS.length} foods built in${(S.libFoods||[]).length?`, ${n0((S.libFoods||[]).length)} Indian recipes from INDB`:''}, about 7,200 USDA foods to search, plus ${list.length} learned from your logs, and ${n0(libCount())} gym exercises. These log instantly without AI.</div>
+    <div class="muted small">${FOODS.length} foods built in${(S.libFoods||[]).length?`, ${n0((S.libFoods||[]).length)} Indian recipes from INDB`:''}, about 7,200 USDA foods to search, plus ${list.length} learned from your logs${(S.groupFoods||[]).length?`, ${n0(S.groupFoods.length)} shared by your group`:''}, and ${n0(libCount())} gym exercises. These log instantly without AI.</div>
+    <label class="check small"><input type="checkbox" data-action="shareFoodsToggle" ${sharesFoods()?'checked':''}> Share the nutrition of foods I add with my group. Only the food’s name and values per 100 g are shared, never who added it, what I ate, how much or when.</label>
     ${list.length?`<div>${list.slice(0,40).map(([k,f])=>`<div class="item"><div><div class="nm">${esc(f.name)}${f.verified?' <span class="tag">corrected</span>':''}</div><div class="sub">${n0(f.per.kcal)} kcal · P ${n1(f.per.protein)} · C ${n1(f.per.carbs)} · F ${n1(f.per.fat)} per 100 g</div></div><span></span><div class="acts"><button data-action="rmFood" data-key="${esc(k)}" aria-label="Remove ${esc(f.name)}">✕</button></div></div>`).join('')}</div>`:''}`;
 }
 function viewProfile(){
@@ -3437,7 +3475,7 @@ document.addEventListener('click', ev => {
       writeDay(date, d=>d.foods.push(copy)); toast(`Logged ${f.name}`, () => writeDay(date, d => { d.foods=d.foods.filter(y=>y.id!==copy.id); }));
       if (ta) ta.focus(); break; }
     case 'resetGoal': { const p={...prof()}; p[b.dataset.key]=null; saveProfile(p); toast('Back to the suggested goal.'); break; }
-    case 'rmFood': { const k=b.dataset.key; const f=(S.myFoods||{})[k]; if(!f) break; const m={...S.myFoods}; delete m[k]; S.myFoods=m; S.myFoodsVer++; if (S.db) S.db.doc('foods/'+k).delete().catch(()=>{}); render(); toast(`Removed ${f.name} from your food list`); break; }
+    case 'rmFood': { const k=b.dataset.key; const f=(S.myFoods||{})[k]; if(!f) break; const m={...S.myFoods}; delete m[k]; S.myFoods=m; S.myFoodsVer++; if (S.db) S.db.doc('foods/'+k).delete().catch(()=>{}); if (SB && S.user) SB.rpc('unshare_food', {p_key:k}).then(loadGroupFoods, () => {}); render(); toast(`Removed ${f.name} from your food list`); break; }
     case 'importIndb': importIndb(); break;
     case 'authPassword': authPassword(); break;
     case 'authRequest': S.auth={step:'request', email:($('#authEmail')?.value||'').trim().toLowerCase(), msg:'', busy:false}; render(); setTimeout(()=>$('#reqEmail')?.focus(), 50); break;
@@ -3492,6 +3530,7 @@ document.addEventListener('change', ev => {
   if (el.dataset && el.dataset.action==='restDefault') saveProfile({...prof(), rest_default:+el.value});
   if (el.dataset && el.dataset.action==='boardToggle') { boardLast = ''; saveProfile({...prof(), leaderboard:el.checked}); }
   if (el.dataset && el.dataset.action==='feedToggle') saveProfile({...prof(), share_workouts:el.checked});
+  if (el.dataset && el.dataset.action==='shareFoodsToggle') { saveProfile({...prof(), share_foods:el.checked}); if (el.checked) backfillGroupFoods(); }
   if (el.dataset && el.dataset.action==='pushToggle') pushToggle(el.dataset.k, el.checked, el);
 });
 document.addEventListener('toggle', ev => { const k = ev.target.dataset && ev.target.dataset.fold; if (!k) return;
@@ -4110,6 +4149,7 @@ async function startFor(user){
   db.collection('reports').orderBy('report_date','desc').limit(50).onSnapshot(snap => { S.reports = snap.docs.map(d=>({...d.data()})); render(); });
   db.collection('foodlib').onSnapshot(snap => { if (S.indbBuiltIn) return; const rows=[]; for (const d of snap.docs) { try { rows.push(...JSON.parse(d.data().rows||'[]')); } catch {} } S.libFoods = rows.map(r=>rowToFood(r,'indb')); S.myFoodsVer=(S.myFoodsVer||0)+1; });
   db.collection('foods').limit(1000).onSnapshot(snap => { const m={}; for (const d of snap.docs) m[d.id]={...d.data()}; S.myFoods=m; S.myFoodsVer=(S.myFoodsVer||0)+1; });
+  setTimeout(loadGroupFoods, 1500);   // after profile and own foods arrive, so the one-off share sees them
   wkLoad();
   db.collection('measurements').limit(500).onSnapshot(snap => { S.measures = snap.docs.map(d=>({...d.data()})); render(); });
   loadPhotos();
