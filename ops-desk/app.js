@@ -145,7 +145,8 @@ function renderBanner() {
   const parts = [];
   const late = state.cases.filter((c) => c.assignee === state.me.user_id && overdue(c));
   if (late.length) parts.push(`<div class="banner warn"><span><b>${late.length} case${late.length > 1 ? 's' : ''} waiting on you</b> for 30+ minutes.</span><button class="btn" id="seemine">Open my queue</button></div>`);
-  if (state.push === 'off') parts.push(`<div class="banner"><span>Get reminders on this device, even when Ops Desk is closed.</span><button class="btn primary" id="pushon">Turn on alerts</button></div>`);
+  if (state.pushHelp && state.push !== 'on') parts.push(`<div class="banner warn"><span>${state.pushHelp}</span><button class="btn" id="pushon">Try again</button></div>`);
+  else if (state.push === 'off') parts.push(`<div class="banner"><span>Get reminders on this device, even when Ops Desk is closed.</span><button class="btn primary" id="pushon">Turn on alerts</button></div>`);
   if (state.push === 'denied') parts.push(`<div class="banner"><span>Alerts are blocked for this site. Allow notifications in your browser's site settings to get reminders.</span></div>`);
   if (state.canInstall) parts.push(`<div class="banner"><span>Install Ops Desk as an app on this device.</span><button class="btn" id="install">Install</button></div>`);
   b.innerHTML = parts.join('');
@@ -329,10 +330,30 @@ async function enablePush() {
     const { data, error } = await sb.functions.invoke('ops', { body: { action: 'key' } });
     if (error || !data?.key) throw new Error('the server did not answer');
     const key = Uint8Array.from(atob(data.key.replace(/-/g, '+').replace(/_/g, '/')), (ch) => ch.charCodeAt(0));
-    await saveSub(await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }));
+    const subscribe = () => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    let sub;
+    try { sub = await subscribe(); }
+    catch {
+      // a half-made subscription from an earlier try can block a new one; clear it and try once more
+      await (await reg.pushManager.getSubscription())?.unsubscribe().catch(() => {});
+      await new Promise((r) => setTimeout(r, 1500));
+      sub = await subscribe();
+    }
+    await saveSub(sub);
     toast('Alerts are on for this device');
-  } catch (e) { toast('Could not turn on alerts: ' + e.message); }
+  } catch (e) {
+    if (/push service/i.test(e.message)) return showPushHelp();
+    toast('Could not turn on alerts: ' + e.message);
+  }
   refreshPush();
+}
+// "Registration failed - push service error": the browser itself couldn't reach its notification service
+async function showPushHelp() {
+  const brave = await navigator.brave?.isBrave?.().catch(() => false);
+  state.pushHelp = brave
+    ? 'Brave keeps alerts off until you allow them: open <b>brave://settings/privacy</b>, turn on <b>Use Google services for push messaging</b>, restart Brave, then tap Turn on alerts again.'
+    : "This browser couldn't reach its notification service. Try again on another network (some office Wi-Fi blocks it), or open Ops Desk in Chrome or Edge and turn alerts on there. Reminders still show in the 🔔 list here.";
+  renderBanner();
 }
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); state.canInstall = e; renderBanner(); });
 window.addEventListener('appinstalled', () => { state.canInstall = null; renderBanner(); });
