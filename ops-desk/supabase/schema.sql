@@ -290,7 +290,7 @@ begin
   with due as (
     select c.* from public.cases c join public.members m on m.user_id = c.assignee and m.active
     where c.status in ('assigned','in_progress','waiting')
-      and now() - greatest(c.last_activity_at, coalesce(c.last_reminded_at, '-infinity')) >= make_interval(mins => mins)
+      and now() - greatest(c.last_activity_at, coalesce(c.last_reminded_at, '-infinity')) >= mins * interval '1 minute'
     for update of c skip locked
   ), sent as (
     insert into public.notifications (user_id, case_id, kind, message)
