@@ -4,12 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { open } = require('./db');
+const push = require('./push');
 const { notify, runReminders, webhookSender, REMINDER_MS, OPEN } = require('./reminders');
 
 const TYPES = ['exchange', 'return', 'escalation'];
 const STATUSES = ['new', 'assigned', 'in_progress', 'waiting', 'resolved', 'closed'];
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
-const SESSION_MS = 7 * 24 * 3600 * 1000;
+const SESSION_MS = 30 * 24 * 3600 * 1000;
 const PUBLIC = path.join(__dirname, 'public');
 
 // ---------- helpers ----------
@@ -35,6 +36,15 @@ const oneOf = (v, list, field) => (list.includes(v) ? v : bad(`${field} must be 
 function createApp({ dbFile = path.join(__dirname, 'ops.db'), now = () => Date.now(), webhookUrl = process.env.WEBHOOK_URL } = {}) {
   const db = open(dbFile);
   const send = webhookSender(webhookUrl);
+  const vapid = push.vapidKeys(db);
+  const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+  db.onNotify = ({ userId, caseId, message }) => {
+    for (const sub of db.prepare('SELECT * FROM push_subs WHERE user_id = ?').all(userId)) {
+      push.sendPush(sub, { title: 'Ops Desk', body: message, caseId }, vapid, vapidSubject)
+        .then((st) => { if (st === 404 || st === 410) db.prepare('DELETE FROM push_subs WHERE endpoint = ?').run(sub.endpoint); })
+        .catch((e) => console.error('push failed:', e.message));
+    }
+  };
   const q = (sql, ...a) => db.prepare(sql).all(...a);
   const one = (sql, ...a) => db.prepare(sql).get(...a);
   const run = (sql, ...a) => db.prepare(sql).run(...a);
@@ -80,7 +90,7 @@ function createApp({ dbFile = path.join(__dirname, 'ops.db'), now = () => Date.n
     routes.push({ method, re, keys, ...opts, fn });
   };
 
-  route('POST', '/api/login', { public: true }, ({ body, res, ip }) => {
+  route('POST', '/api/login', { public: true }, ({ body, req, res, ip }) => {
     const hit = (loginAttempts.get(ip) || []).filter((t) => now() - t < 15 * 60000);
     if (hit.length >= 10) bad('Too many attempts, try again in a few minutes', 429);
     const u = one('SELECT * FROM users WHERE email = ? AND active = 1', str(body.email, 200, 'email').toLowerCase());
@@ -90,7 +100,8 @@ function createApp({ dbFile = path.join(__dirname, 'ops.db'), now = () => Date.n
     }
     const token = crypto.randomBytes(32).toString('base64url');
     run('INSERT INTO sessions (token,user_id,expires_at) VALUES (?,?,?)', token, u.id, now() + SESSION_MS);
-    res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}`);
+    const secure = req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+    res.setHeader('Set-Cookie', `sid=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}${secure}`);
     return { user: publicUser(u) };
   });
   const loginAttempts = new Map();
@@ -236,6 +247,20 @@ function createApp({ dbFile = path.join(__dirname, 'ops.db'), now = () => Date.n
     return { ok: true };
   });
 
+  // web push subscriptions
+  route('GET', '/api/push/key', {}, () => ({ key: vapid.pub }));
+  route('POST', '/api/push/subscribe', {}, ({ body, user }) => {
+    const s = body.subscription || {};
+    if (!/^https:\/\//.test(s.endpoint || '') || !s.keys?.p256dh || !s.keys?.auth) bad('Invalid subscription');
+    run('INSERT OR REPLACE INTO push_subs (endpoint,user_id,p256dh,auth,created_at) VALUES (?,?,?,?,?)',
+      s.endpoint, user.id, s.keys.p256dh, s.keys.auth, now());
+    return { ok: true };
+  });
+  route('POST', '/api/push/unsubscribe', {}, ({ body, user }) => {
+    run('DELETE FROM push_subs WHERE endpoint = ? AND user_id = ?', String(body.endpoint || ''), user.id);
+    return { ok: true };
+  });
+
   // dashboard
   route('GET', '/api/stats', { admin: true }, () => {
     const t = now();
@@ -257,7 +282,7 @@ function createApp({ dbFile = path.join(__dirname, 'ops.db'), now = () => Date.n
     const m = (req.headers.cookie || '').split(/;\s*/).find((c) => c.startsWith(name + '='));
     return m ? m.slice(name.length + 1) : null;
   }
-  const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
+  const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
   const json = (res, status, data) => {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(JSON.stringify(data));

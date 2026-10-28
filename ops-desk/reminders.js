@@ -9,6 +9,7 @@ const OPEN = ['assigned', 'in_progress', 'waiting'];
 function notify(db, { userId, caseId, kind, message, now }) {
   db.prepare('INSERT INTO notifications (user_id, case_id, kind, message, created_at) VALUES (?,?,?,?,?)')
     .run(userId, caseId ?? null, kind, message, now);
+  db.onNotify?.({ userId, caseId: caseId ?? null, kind, message }); // web push hook (set by server)
 }
 
 function dueCases(db, now, reminderMs = REMINDER_MS) {

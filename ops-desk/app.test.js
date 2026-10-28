@@ -95,3 +95,44 @@ test('deactivated users stop getting reminders and lose their session', async ()
   assert.equal(s.unassigned, 0);
   app.close();
 });
+
+test('web push: payload decrypts for the subscriber, VAPID header is valid, reminders are pushed', async () => {
+  const crypto = require('node:crypto');
+  const push = require('./push');
+  const { app, client, advance } = await setup();
+
+  // act as the browser: a P-256 key pair + 16-byte auth secret
+  const ua = crypto.createECDH('prime256v1'); const uaPub = ua.generateKeys(); const auth = crypto.randomBytes(16);
+  const body = push.encrypt('{"hello":"world"}', uaPub.toString('base64url'), auth.toString('base64url'));
+  const salt = body.subarray(0, 16), idlen = body[20], asPub = body.subarray(21, 21 + idlen), ct = body.subarray(21 + idlen);
+  const secret = ua.computeSecret(asPub);
+  const hk = (ikm, s, info, n) => Buffer.from(crypto.hkdfSync('sha256', ikm, s, info, n));
+  const prk = hk(secret, auth, Buffer.concat([Buffer.from('WebPush: info\0'), uaPub, asPub]), 32);
+  const d = crypto.createDecipheriv('aes-128-gcm', hk(prk, salt, Buffer.from('Content-Encoding: aes128gcm\0'), 16), hk(prk, salt, Buffer.from('Content-Encoding: nonce\0'), 12));
+  d.setAuthTag(ct.subarray(-16));
+  const plain = Buffer.concat([d.update(ct.subarray(0, -16)), d.final()]);
+  assert.equal(plain.subarray(0, -1).toString(), '{"hello":"world"}');
+  assert.equal(plain.at(-1), 2);
+
+  const keys = push.vapidKeys(app.db);
+  const [t, k] = push.vapidHeader('https://push.example/abc', keys, 'mailto:a@b.c').replace('vapid t=', '').split(', k=');
+  assert.equal(k, keys.pub);
+  const [h, c, sig] = t.split('.');
+  assert.ok(crypto.verify('sha256', Buffer.from(`${h}.${c}`), { key: crypto.createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: Buffer.from(keys.pub, 'base64url').subarray(1, 33).toString('base64url'), y: Buffer.from(keys.pub, 'base64url').subarray(33).toString('base64url') }, format: 'jwk' }), dsaEncoding: 'ieee-p1363' }, Buffer.from(sig, 'base64url')));
+
+  // subscribe through the API, then a reminder triggers a push to that endpoint
+  const admin = client();
+  await admin('POST', '/api/login', { email: 'admin@example.com', password: 'adminpass1' });
+  assert.equal((await admin('POST', '/api/push/subscribe', { subscription: { endpoint: 'http://insecure', keys: {} } })).status, 400);
+  const sent = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => (String(url).startsWith('https://push.example') ? (sent.push(url), { status: 201 }) : realFetch(url, opts));
+  try {
+    await admin('POST', '/api/push/subscribe', { subscription: { endpoint: 'https://push.example/abc', keys: { p256dh: uaPub.toString('base64url'), auth: auth.toString('base64url') } } });
+    await admin('POST', '/api/cases', { type: 'return', order_ref: 'P1', customer: 'C', summary: 's', assignee_id: 1 }); // assignment notice → push
+    advance(30); app.tick();                                                                                         // reminder → push
+    await new Promise((r) => setTimeout(r, 50));
+  } finally { globalThis.fetch = realFetch; }
+  assert.equal(sent.length, 2);
+  app.close();
+});

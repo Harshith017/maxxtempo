@@ -2,7 +2,7 @@
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const STATUS = { new: 'New', assigned: 'Assigned', in_progress: 'In progress', waiting: 'Waiting', resolved: 'Resolved', closed: 'Closed' };
-const state = { user: null, view: 'cases', users: [], filters: { status: 'open', type: '', assignee: '', q: '' }, openCase: null, bell: false, notifs: [], unread: 0, seen: 0 };
+const state = { push: 'unknown', canInstall: null, user: null, view: 'cases', users: [], filters: { status: 'open', type: '', assignee: '', q: '' }, openCase: null, bell: false, notifs: [], unread: 0, seen: 0 };
 
 async function api(method, path, body) {
   const res = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
@@ -28,7 +28,7 @@ async function pollNotifs() {
     const fresh = d.items.filter((n) => !n.read_at && n.id > state.seen);
     if (state.seen) fresh.forEach((n) => {
       toast(n.message);
-      if ('Notification' in window && Notification.permission === 'granted') new Notification('Ops Desk', { body: n.message, tag: 'case-' + n.case_id });
+      if (state.push !== 'on' && 'Notification' in window && Notification.permission === 'granted') new Notification('Ops Desk', { body: n.message, tag: 'case-' + n.case_id });
     });
     state.seen = Math.max(state.seen, ...d.items.map((n) => n.id), 0);
     const changed = d.unread !== state.unread;
@@ -40,8 +40,8 @@ async function pollNotifs() {
 // ---------- rendering ----------
 function render() {
   if (!state.user) return renderLogin();
-  $('#app').innerHTML = `<header></header><main></main>`;
-  renderHeader(); renderView();
+  $('#app').innerHTML = `<header></header><div id="banner"></div><main></main>`;
+  renderHeader(); renderBanner(); renderView();
 }
 function renderLogin(err = '') {
   $('#app').innerHTML = `<form class="card login"><h2>Ops Desk</h2>
@@ -64,11 +64,10 @@ function renderHeader() {
     <span style="color:var(--mute)">${esc(state.user.name)}</span><button class="btn" id="out">Sign out</button>`;
   h.querySelectorAll('nav button').forEach((b) => b.onclick = () => { state.view = b.dataset.v; state.openCase = null; state.bell = false; render(); });
   $('#new').onclick = () => { state.view = 'new'; state.openCase = null; render(); };
-  $('#bell').onclick = () => { state.bell = !state.bell; renderBell(); if (state.bell) askPermission(); };
+  $('#bell').onclick = () => { state.bell = !state.bell; renderBell(); };
   $('#out').onclick = async () => { await api('POST', '/api/logout'); state.user = null; state.seen = 0; render(); };
   renderBell();
 }
-function askPermission() { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); }
 function renderBell() {
   $('.pop')?.remove();
   if (!state.bell) return;
@@ -184,12 +183,54 @@ async function renderTeam(m) {
   });
 }
 
+// ---------- installable app + background push ----------
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+async function refreshPush() {
+  if (!pushSupported()) state.push = 'unsupported';
+  else if (Notification.permission === 'denied') state.push = 'denied';
+  else {
+    const reg = await navigator.serviceWorker.ready.catch(() => null);
+    state.push = (await reg?.pushManager.getSubscription()) ? 'on' : 'off';
+  }
+  renderBanner();
+}
+async function enablePush() {
+  try {
+    if (await Notification.requestPermission() !== 'granted') return refreshPush();
+    const reg = await navigator.serviceWorker.ready;
+    const { key } = await api('GET', '/api/push/key');
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(atob(key.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)) });
+    await api('POST', '/api/push/subscribe', { subscription: sub.toJSON() });
+    toast('Alerts are on for this device');
+  } catch (e) { toast('Could not enable alerts: ' + e.message); }
+  refreshPush();
+}
+function renderBanner() {
+  const b = $('#banner'); if (!b) return;
+  const parts = [];
+  if (state.push === 'off') parts.push(`<span>Get case reminders on this device, even when the app is closed.</span><button class="btn primary" id="pushon">Turn on alerts</button>`);
+  else if (state.push === 'denied') parts.push(`<span>Alerts are blocked. Allow notifications for this site in your browser settings to get reminders.</span>`);
+  if (state.canInstall) parts.push(`<span>Install Ops Desk as an app.</span><button class="btn" id="install">Install</button>`);
+  b.innerHTML = parts.length ? `<div class="banner">${parts.join('')}</div>` : '';
+  $('#pushon')?.addEventListener('click', enablePush);
+  $('#install')?.addEventListener('click', async () => { const e = state.canInstall; state.canInstall = null; e.prompt(); await e.userChoice; renderBanner(); });
+}
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); state.canInstall = e; renderBanner(); });
+window.addEventListener('appinstalled', () => { state.canInstall = null; renderBanner(); });
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').then(refreshPush).catch(() => {});
+  // tapping a push notification while the app is already open
+  navigator.serviceWorker.addEventListener('message', (e) => { if (e.data?.caseId && state.user) { state.view = 'cases'; state.openCase = e.data.caseId; render(); } });
+}
+const hashCase = () => { const m = location.hash.match(/^#case=(\d+)/); if (m) { state.view = 'cases'; state.openCase = +m[1]; history.replaceState(null, '', location.pathname); } };
+
 async function boot() {
+  hashCase();
   try {
     const me = await api('GET', '/api/me'); state.user = me.user; state.unread = me.unread;
     state.users = await api('GET', '/api/users');
   } catch { state.user = null; }
-  render(); pollNotifs();
+  render(); pollNotifs(); refreshPush();
 }
 setInterval(pollNotifs, 20000);
 boot();
