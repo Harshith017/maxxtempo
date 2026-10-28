@@ -18,6 +18,20 @@ First run creates the admin account (a password is printed if you don't set one)
 - **Reminders**: a check runs every minute. An open case (assigned / in progress / waiting) whose assignee hasn't started it or posted a note/status change for 30 min gets a notification, then again every 30 min. Starting, posting an update or changing status resets the clock; resolving/closing stops it. Admin comments don't reset it. Deactivated users get none.
 - **Where reminders show up**: the bell in the app (polled every 20 s, plus a toast and a browser notification if allowed; the tab must be open). Set `WEBHOOK_URL` to also POST each reminder (`{text, assignee, caseId}`) to a Slack/Teams incoming webhook, which reaches people with the tab closed.
 
+## Put it online (Render)
+The repo has a `render.yaml` that sets everything up. Costs about $7.25/month (Starter instance + 1 GB disk). The free plan won't work: it sleeps after 15 minutes, which stops reminders, and wipes the database on restart.
+
+1. Sign up at https://dashboard.render.com (signing in with GitHub is easiest) and add a payment card.
+2. **New → Blueprint**, connect GitHub, pick the `fuel-lift` repo and the branch `claude/magical-cray-w9yhsf`.
+3. Render asks for three values:
+   - `ADMIN_EMAIL`: your email (your admin login)
+   - `ADMIN_PASSWORD`: a password you'll remember (8+ characters)
+   - `VAPID_SUBJECT`: `mailto:` followed by your email
+4. Click **Apply**. In 2–3 minutes your link appears at the top of the service page, like `https://ops-desk-xxxx.onrender.com`.
+5. Open the link, sign in, add your team under **Team**, and send them the link. Each person installs it and taps **Turn on alerts**.
+
+Render redeploys by itself whenever this branch changes. You can add your own domain under the service's **Settings → Custom Domains**.
+
 ## Phone and Windows app
 Ops Desk is an installable web app (PWA) with real push notifications, so reminders arrive even when it's closed.
 - **Android** (Chrome): open the site, tap **Install** in the banner (or ⋮ → *Install app*), then tap **Turn on alerts**.
@@ -26,6 +40,6 @@ Ops Desk is an installable web app (PWA) with real push notifications, so remind
 - Push and installation need the site on **HTTPS** (`localhost` is exempt for testing). Put it behind any HTTPS host or reverse proxy (Caddy, nginx, Cloudflare Tunnel, Render, Fly…). Keys are generated on first run and stored in `ops.db`; set `VAPID_SUBJECT=mailto:you@company.com` for the contact address push services expect.
 
 ## Config (env)
-`PORT` (3000) · `REMINDER_MINUTES` (30) · `ADMIN_EMAIL` / `ADMIN_PASSWORD` (first run only) · `WEBHOOK_URL` · `VAPID_SUBJECT`
+`PORT` (3000) · `REMINDER_MINUTES` (30) · `ADMIN_EMAIL` / `ADMIN_PASSWORD` (first run only) · `WEBHOOK_URL` · `VAPID_SUBJECT` · `DB_FILE` (database path) · `TRUST_PROXY` (set behind a proxy)
 
 Data lives in `ops.db` (SQLite). Serve it over HTTPS in production.

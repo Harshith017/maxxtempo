@@ -33,7 +33,7 @@ const str = (v, max, field, required = true) => {
 };
 const oneOf = (v, list, field) => (list.includes(v) ? v : bad(`${field} must be one of ${list.join(', ')}`));
 
-function createApp({ dbFile = path.join(__dirname, 'ops.db'), now = () => Date.now(), webhookUrl = process.env.WEBHOOK_URL } = {}) {
+function createApp({ dbFile = process.env.DB_FILE || path.join(__dirname, 'ops.db'), now = () => Date.now(), webhookUrl = process.env.WEBHOOK_URL } = {}) {
   const db = open(dbFile);
   const send = webhookSender(webhookUrl);
   const vapid = push.vapidKeys(db);
@@ -105,6 +105,8 @@ function createApp({ dbFile = path.join(__dirname, 'ops.db'), now = () => Date.n
     return { user: publicUser(u) };
   });
   const loginAttempts = new Map();
+
+  route('GET', '/api/health', { public: true }, () => ({ ok: true }));
 
   route('POST', '/api/logout', {}, ({ req, res }) => {
     run('DELETE FROM sessions WHERE token = ?', cookie(req, 'sid'));
@@ -278,6 +280,8 @@ function createApp({ dbFile = path.join(__dirname, 'ops.db'), now = () => Date.n
   });
 
   // ---------- http plumbing ----------
+  // behind a host's proxy (Render, Fly…) every request comes from the proxy; use the forwarded client address
+  const clientIp = (req) => (process.env.TRUST_PROXY ? String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '') || req.socket.remoteAddress;
   function cookie(req, name) {
     const m = (req.headers.cookie || '').split(/;\s*/).find((c) => c.startsWith(name + '='));
     return m ? m.slice(name.length + 1) : null;
@@ -324,7 +328,7 @@ function createApp({ dbFile = path.join(__dirname, 'ops.db'), now = () => Date.n
         if (r.admin && user.role !== 'admin') throw new HttpError(403, 'Admins only');
       }
       const body = req.method === 'GET' ? {} : await readBody(req);
-      const out = r.fn({ req, res, user, params, body, query: Object.fromEntries(url.searchParams), ip: req.socket.remoteAddress });
+      const out = r.fn({ req, res, user, params, body, query: Object.fromEntries(url.searchParams), ip: clientIp(req) });
       json(res, 200, out);
     } catch (e) {
       if (!(e instanceof HttpError)) console.error(e);

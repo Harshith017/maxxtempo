@@ -1,0 +1,31 @@
+# Render Blueprint for Ops Desk (the app lives in ops-desk/).
+# Needs a paid instance: free instances sleep after 15 minutes idle, which would stop the
+# 30-minute reminders, and they have no persistent disk, so the database would be wiped.
+services:
+  - type: web
+    name: ops-desk
+    runtime: node
+    plan: starter
+    rootDir: ops-desk
+    buildCommand: "true"
+    startCommand: npm start
+    healthCheckPath: /api/health
+    disk:
+      name: ops-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: DB_FILE
+        value: /var/data/ops.db
+      - key: TRUST_PROXY
+        value: "1"
+      - key: REMINDER_MINUTES
+        value: "30"
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
