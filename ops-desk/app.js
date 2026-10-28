@@ -119,7 +119,7 @@ function renderHeader() {
     <nav>${tab('cases', 'Cases')}${tab('mine', `My queue${mine ? ` <span class="count">${mine}</span>` : ''}`)}${isAdmin() ? tab('overview', 'Overview') + tab('team', 'Team') : ''}</nav>
     <div class="tools"><button class="btn primary" id="new">+ New</button>
     <button class="btn bell" id="bell" aria-label="Notifications">🔔${state.unread ? `<span class="n">${state.unread}</span>` : ''}</button>
-    <button class="btn ghost" id="out" title="Sign out">${esc(state.me.name)} ⎋</button></div>`;
+    <button class="btn ghost small" id="out" title="Signed in as ${esc(state.me.name)}">Sign out</button></div>`;
   h.querySelectorAll('nav button').forEach((b) => b.onclick = () => go(b.dataset.v));
   $('#new').onclick = () => go('new');
   $('#bell').onclick = () => { state.bell = !state.bell; renderBell(); };

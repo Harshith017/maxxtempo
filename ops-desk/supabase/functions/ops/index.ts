@@ -7,7 +7,7 @@
 //   {action:"tick"}  (x-cron-key header)             the scheduler: push new notifications to phones
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import * as webpush from "jsr:@negrel/webpush@0.5.0";
+import { makeVapid, sendPush, type Vapid } from "./webpush.ts";
 
 const ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? "https://harshith017.github.io";
 const cors = {
@@ -27,7 +27,7 @@ function same(a: string, b: string) {
   return d === 0;
 }
 
-type Config = { cron_key: string; setup_key: string; vapid: webpush.ExportedVapidKeys | null };
+type Config = { cron_key: string; setup_key: string; vapid: Vapid | null };
 async function config(): Promise<Config> {
   const { data, error } = await admin.from("ops_config").select("cron_key,setup_key,vapid").eq("id", 1).single();
   if (error) throw new Error("config: " + error.message);
@@ -35,33 +35,27 @@ async function config(): Promise<Config> {
 }
 
 // The VAPID key pair: made once, stored, then only read.
-let server: webpush.ApplicationServer | null = null, publicKey = "";
-async function appServer(cfg?: Config) {
-  if (server) return server;
+let vapid: Vapid | null = null;
+async function keys(cfg?: Config) {
+  if (vapid) return vapid;
   cfg ??= await config();
-  let exported = cfg.vapid;
-  if (!exported) {
-    exported = await webpush.exportVapidKeys(await webpush.generateVapidKeys({ extractable: true }));
-    await admin.from("ops_config").update({ vapid: exported }).eq("id", 1).is("vapid", null);
-    exported = (await config()).vapid!;
+  if (!cfg.vapid) {
+    // only fill it if it's still empty, so two first calls can't end up with different keys
+    await admin.from("ops_config").update({ vapid: await makeVapid() }).eq("id", 1).is("vapid", null);
+    cfg = await config();
   }
-  const keys = await webpush.importVapidKeys(exported, { extractable: false });
-  publicKey = await webpush.exportApplicationServerKey(keys);
-  server = await webpush.ApplicationServer.new({ contactInformation: CONTACT, vapidKeys: keys });
-  return server;
+  return (vapid = cfg.vapid!);
 }
 
 type Sub = { endpoint: string; user_id: string; p256dh: string; auth: string };
 async function send(sub: Sub, msg: { title: string; body: string; caseId: number | null }) {
-  const as = await appServer();
   try {
-    await as.subscribe({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } })
-      .pushTextMessage(JSON.stringify(msg), { ttl: 3600, urgency: webpush.Urgency.High });
-    return true;
-  } catch (e) {
-    const status = e instanceof webpush.PushMessageError ? e.response.status : 0;
+    const status = await sendPush(sub, msg, await keys(), CONTACT);
     if (status === 404 || status === 410) await admin.from("push_subs").delete().eq("endpoint", sub.endpoint);
-    else console.error("push failed", status, String(e));
+    else if (status >= 300) console.error("push failed", status);
+    return status < 300;
+  } catch (e) {
+    console.error("push failed", String(e));
     return false;
   }
 }
@@ -95,13 +89,12 @@ Deno.serve(async (req) => {
   try {
     switch (body.action) {
       case "key":
-        await appServer();
-        return reply(200, { ok: true, key: publicKey });
+        return reply(200, { ok: true, key: (await keys()).publicKey });
 
       case "tick": {
         const cfg = await config();
         if (!same(req.headers.get("x-cron-key") ?? "", cfg.cron_key)) return fail(401, "key");
-        await appServer(cfg);
+        await keys(cfg);
         const { data: items, error } = await admin.rpc("claim_pushes");
         if (error) throw error;
         const users = [...new Set((items ?? []).map((n: { user_id: string }) => n.user_id))];

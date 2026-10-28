@@ -84,7 +84,8 @@ tr.off td{opacity:.55}td.acts{display:flex;gap:6px;flex-wrap:wrap;justify-conten
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom));background:var(--ink);color:var(--bg);padding:11px 16px;border-radius:12px;z-index:20;max-width:calc(100vw - 32px)}
 
 @media (max-width:680px){
-  header .brand b{display:none}
+  header{gap:8px}
+  .tools .btn{padding:6px 10px}
   nav{order:3;flex:1 1 100%}
   .tools{margin-left:auto}
   .filters{grid-template-columns:1fr 1fr}.filters input{grid-column:1/-1}

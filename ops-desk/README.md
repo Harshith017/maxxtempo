@@ -1,45 +1,39 @@
 # Ops Desk
 
-Track **exchanges, returns and escalations**. Admins assign cases; assignees are nudged **every 30 minutes** until they start the case or post an update.
+Track **exchanges, returns and escalations** for the ops team. Admins assign cases; whoever has a case gets an alert **every 30 minutes** until they start it or post an update.
 
-No dependencies; needs Node 22.13+ (uses the built-in SQLite).
+Built like MaxxTempo: a static app on GitHub Pages, with Supabase for sign-in, data and the reminder schedule.
 
-```bash
-cd ops-desk
-ADMIN_EMAIL=you@company.com ADMIN_PASSWORD='choose-one' npm start   # http://localhost:3000
-npm test
-```
+- **App**: https://harshith017.github.io/maxxtempo/ops-desk/
+- **Database**: Supabase project `ops-desk` (`ugplpkclluoqfvuadwam`, Mumbai, free plan)
 
-First run creates the admin account (a password is printed if you don't set one). Add teammates under **Team**.
+## Using it
+- **Admins** create cases, assign or reassign them, see the Overview (who has what, what's overdue), and manage the team under **Team**: add people with a temporary password, switch roles, disable accounts, set a new password when someone forgets theirs.
+- **Agents** log new cases, work the ones assigned to them (Start → Waiting on customer → Resolve), and can comment on any case.
+- Everyone signs in with email and password. On first sign-in (or after an admin resets it) they choose their own password.
+- Each case moves new → assigned → in progress ⇄ waiting → resolved/closed, and every step is kept in its timeline.
 
-## How it works
-- **Roles**: admins assign/reassign, see the Overview (workload + overdue) and manage the team. Agents create cases, work the ones assigned to them, and can comment on any case.
-- **Lifecycle**: new → assigned → in progress ⇄ waiting → resolved/closed. Every change lands in the case timeline.
-- **Reminders**: a check runs every minute. An open case (assigned / in progress / waiting) whose assignee hasn't started it or posted a note/status change for 30 min gets a notification, then again every 30 min. Starting, posting an update or changing status resets the clock; resolving/closing stops it. Admin comments don't reset it. Deactivated users get none.
-- **Where reminders show up**: the bell in the app (polled every 20 s, plus a toast and a browser notification if allowed; the tab must be open). Set `WEBHOOK_URL` to also POST each reminder (`{text, assignee, caseId}`) to a Slack/Teams incoming webhook, which reaches people with the tab closed.
+## Reminders
+- Every 20 seconds the database checks for open cases (assigned / in progress / waiting) whose assignee hasn't started them or posted an update for 30 minutes. It sends a reminder, then another every 30 minutes until they act.
+- Starting the case, posting a note or changing its status resets the clock; resolving or closing stops it. An admin commenting doesn't reset it. Disabled people get nothing.
+- Reminders and new assignments arrive as phone/PC notifications (even with the app closed) once that person taps **Turn on alerts** on each device, and always in the 🔔 list inside the app.
+- To change the interval: Supabase → Table Editor → `ops_config` → `reminder_minutes`.
 
-## Put it online (Render)
-The repo has a `render.yaml` that sets everything up. Costs about $7.25/month (Starter instance + 1 GB disk). The free plan won't work: it sleeps after 15 minutes, which stops reminders, and wipes the database on restart.
+## Install on phones and PCs
+- **Android** (Chrome): open the link → **Install** in the banner (or ⋮ → *Install app*) → **Turn on alerts**.
+- **Windows** (Edge or Chrome): open the link → **Install** (banner or the icon in the address bar) → **Turn on alerts**.
+- **iPhone** (iOS 16.4+): Share → *Add to Home Screen*, open it from the home screen, then **Turn on alerts**.
 
-1. Sign up at https://dashboard.render.com (signing in with GitHub is easiest) and add a payment card.
-2. **New → Blueprint**, connect GitHub, pick the `fuel-lift` repo and the branch `claude/magical-cray-w9yhsf`.
-3. Render asks for three values:
-   - `ADMIN_EMAIL`: your email (your admin login)
-   - `ADMIN_PASSWORD`: a password you'll remember (8+ characters)
-   - `VAPID_SUBJECT`: `mailto:` followed by your email
-4. Click **Apply**. In 2–3 minutes your link appears at the top of the service page, like `https://ops-desk-xxxx.onrender.com`.
-5. Open the link, sign in, add your team under **Team**, and send them the link. Each person installs it and taps **Turn on alerts**.
+## Networks that block supabase.co (Jio, Airtel, ACT)
+The app tries Supabase directly and falls back to the Cloudflare relay (`../cloudflare/worker.js`, which now also forwards `/ops/...` to this project). After this is merged, paste the new `worker.js` into the existing `maxxtempo-api` Worker in Cloudflare (Workers & Pages → maxxtempo-api → Edit code → paste → Deploy).
 
-Render redeploys by itself whenever this branch changes. You can add your own domain under the service's **Settings → Custom Domains**.
+## Files
+- `index.html`, `app.js`, `style.css`: the app; `config.js`: project address and public key
+- `sw.js`, `manifest.webmanifest`, `icon-*`: installable app + notifications
+- `supabase/schema.sql`: tables, access rules, case actions and the reminder schedule (safe to run again)
+- `supabase/functions/ops/`: the server function (team accounts, sending notifications); `webpush.ts` is checked by `node --experimental-strip-types --test supabase/functions/ops/webpush.test.ts`
 
-## Phone and Windows app
-Ops Desk is an installable web app (PWA) with real push notifications, so reminders arrive even when it's closed.
-- **Android** (Chrome): open the site, tap **Install** in the banner (or ⋮ → *Install app*), then tap **Turn on alerts**.
-- **Windows** (Edge or Chrome): open the site, click **Install** in the banner (or the install icon in the address bar), then **Turn on alerts**. It gets its own window and Start-menu entry.
-- Each person turns alerts on once per device. Tapping a notification opens that case.
-- Push and installation need the site on **HTTPS** (`localhost` is exempt for testing). Put it behind any HTTPS host or reverse proxy (Caddy, nginx, Cloudflare Tunnel, Render, Fly…). Keys are generated on first run and stored in `ops.db`; set `VAPID_SUBJECT=mailto:you@company.com` for the contact address push services expect.
-
-## Config (env)
-`PORT` (3000) · `REMINDER_MINUTES` (30) · `ADMIN_EMAIL` / `ADMIN_PASSWORD` (first run only) · `WEBHOOK_URL` · `VAPID_SUBJECT` · `DB_FILE` (database path) · `TRUST_PROXY` (set behind a proxy)
-
-Data lives in `ops.db` (SQLite). Serve it over HTTPS in production.
+## Security
+- Row-level security on every table; cases can only be changed through database functions that check who's asking (only admins assign; only the assignee or an admin updates).
+- No public sign-up: accounts are created only by an admin through the server function.
+- `config.js` holds only the public anon key. The service key stays inside Supabase.
