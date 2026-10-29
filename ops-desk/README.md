@@ -1,6 +1,6 @@
 # Ops Desk
 
-Track **exchanges, returns and escalations** for the ops team. Admins assign cases; whoever has a case gets an alert **every 30 minutes** until they start it or post an update.
+Track **exchanges, returns, pending orders and escalations** for the ops team. Admins assign cases; whoever has a case gets an alert **every 30 minutes** until they start it or post an update.
 
 Built like MaxxTempo: a static app on GitHub Pages, with Supabase for sign-in, data and the reminder schedule.
 
@@ -11,6 +11,7 @@ Built like MaxxTempo: a static app on GitHub Pages, with Supabase for sign-in, d
 - **Admins** create cases, assign or reassign them, see the Overview (who has what, what's overdue), and manage the team under **Team**: add people with a temporary password, switch roles, disable accounts, set a new password when someone forgets theirs.
 - **Agents** log new cases, work the ones assigned to them (Start → Waiting on customer → Resolve), and can comment on any case.
 - Everyone signs in with email and password. On first sign-in (or after an admin resets it) they choose their own password.
+- A case can carry an optional **location**: type a store, warehouse or address, or tap **📍 Use my location** to fill in this device's coordinates. It opens in Google Maps, and the assignee or an admin can add or change it later.
 - Each case moves new → assigned → in progress ⇄ waiting → resolved/closed, and every step is kept in its timeline.
 
 ## Reminders
@@ -31,6 +32,7 @@ The app tries Supabase directly and falls back to the Cloudflare relay (`../clou
 - `index.html`, `app.js`, `style.css`: the app; `config.js`: project address and public key
 - `sw.js`, `manifest.webmanifest`, `icon-*`: installable app + notifications
 - `supabase/schema.sql`: tables, access rules, case actions and the reminder schedule (safe to run again)
+- `supabase/migrations/`: changes for a project set up before them (`002`: pending orders + location)
 - `supabase/functions/ops/`: the server function (team accounts, sending notifications); `webpush.ts` is checked by `node --experimental-strip-types --test supabase/functions/ops/webpush.test.ts`
 
 ## Security

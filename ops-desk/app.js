@@ -1,8 +1,12 @@
 'use strict';
-/* Ops Desk: exchanges, returns and escalations. Static page + Supabase (see supabase/schema.sql). */
+/* Ops Desk: exchanges, returns, pending orders and escalations. Static page + Supabase (see supabase/schema.sql). */
 const CFG = window.OPS_CONFIG;
 const REMIND_MIN = 30;
 const OPEN = ['assigned', 'in_progress', 'waiting'];
+const TYPES = { exchange: ['Exchange', 'Exchanges'], return: ['Return', 'Returns'], pending_order: ['Pending order', 'Pending orders'], escalation: ['Escalation', 'Escalations'] };
+const typeName = (t) => TYPES[t]?.[0] || t;
+// a typed place opens as a Maps search; coordinates from "Use my location" open as a pin
+const mapsUrl = (loc) => /^-?\d+(\.\d+)?,\s*-?\d+(\.\d+)?$/.test(loc) ? `https://www.google.com/maps?q=${encodeURIComponent(loc.replace(/\s/g, ''))}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc)}`;
 const STATUS = { new: 'New', assigned: 'Assigned', in_progress: 'In progress', waiting: 'Waiting', resolved: 'Resolved', closed: 'Closed' };
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -166,16 +170,16 @@ const PRI = { urgent: 0, high: 1, normal: 2, low: 3 };
 function caseRow(c) {
   const late = overdue(c);
   return `<button class="case card ${late ? 'late' : ''}" data-id="${c.id}">
-    <div class="row between"><span class="type t-${c.type}">${c.type}</span><span class="tags"><span class="tag p-${c.priority}">${c.priority}</span><span class="tag s-${c.status}">${STATUS[c.status]}</span></span></div>
+    <div class="row between"><span class="type t-${c.type}">${typeName(c.type)}</span><span class="tags"><span class="tag p-${c.priority}">${c.priority}</span><span class="tag s-${c.status}">${STATUS[c.status]}</span></span></div>
     <div class="title"><span class="num">#${c.id}</span> ${esc(c.order_ref)} · ${esc(c.customer)}</div>
     <div class="sum">${esc(c.summary.slice(0, 140))}</div>
-    <div class="meta">${c.assignee ? esc(nameOf(c.assignee)) : '<b class="warn-text">Unassigned</b>'} · opened ${ago(c.created_at)}${late ? ` · <b class="late-text">${c.status === 'assigned' ? 'not started' : 'no update'} ${idleMin(c)} min</b>` : ''}</div></button>`;
+    <div class="meta">${c.location ? `📍 ${esc(c.location)} · ` : ''}${c.assignee ? esc(nameOf(c.assignee)) : '<b class="warn-text">Unassigned</b>'} · opened ${ago(c.created_at)}${late ? ` · <b class="late-text">${c.status === 'assigned' ? 'not started' : 'no update'} ${idleMin(c)} min</b>` : ''}</div></button>`;
 }
 function renderCases() {
   const mine = state.view === 'mine', f = state.f, m = $('#main');
   m.innerHTML = `<div class="filters">
     <input id="fq" type="search" placeholder="Search order, customer, #number" value="${esc(f.q)}">
-    <select id="ftype"><option value="">All types</option>${['exchange', 'return', 'escalation'].map((t) => `<option value="${t}" ${f.type === t ? 'selected' : ''}>${t[0].toUpperCase() + t.slice(1)}s</option>`).join('')}</select>
+    <select id="ftype"><option value="">All types</option>${Object.entries(TYPES).map(([t, [, many]]) => `<option value="${t}" ${f.type === t ? 'selected' : ''}>${many}</option>`).join('')}</select>
     <select id="fstatus"><option value="open" ${f.status === 'open' ? 'selected' : ''}>Open</option><option value="" ${f.status === '' ? 'selected' : ''}>All</option>${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${f.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
     ${mine ? '' : `<select id="fwho">${userOpts(f.who, 'Anyone')}<option value="none" ${f.who === 'none' ? 'selected' : ''}>Unassigned</option></select>`}
   </div><div id="list" class="list"></div>`;
@@ -186,10 +190,10 @@ function renderCases() {
       (!f.type || c.type === f.type) &&
       (f.status === 'open' ? !['resolved', 'closed'].includes(c.status) : !f.status || c.status === f.status) &&
       (mine || !f.who || (f.who === 'none' ? !c.assignee : c.assignee === f.who)) &&
-      (!q || String(c.id) === q || [c.order_ref, c.customer, c.summary, c.contact].some((s) => s.toLowerCase().includes(q))))
+      (!q || String(c.id) === q || [c.order_ref, c.customer, c.summary, c.contact, c.location].some((s) => s.toLowerCase().includes(q))))
       .sort((a, b) => (overdue(b) - overdue(a)) || (PRI[a.priority] - PRI[b.priority]) || (ms(b.created_at) - ms(a.created_at)));
     $('#list').innerHTML = rows.length ? rows.map(caseRow).join('') :
-      `<div class="empty">${state.cases.length ? 'No cases match these filters.' : 'No cases yet. Tap <b>+ New</b> to log the first exchange, return or escalation.'}</div>`;
+      `<div class="empty">${state.cases.length ? 'No cases match these filters.' : 'No cases yet. Tap <b>+ New</b> to log the first exchange, return, pending order or escalation.'}</div>`;
     $('#list').querySelectorAll('.case').forEach((el) => el.onclick = () => go(state.view, +el.dataset.id));
   };
   state.paint = paint;
@@ -199,21 +203,23 @@ function renderCases() {
 
 function renderNew() {
   $('#main').innerHTML = `<form class="card" id="nc"><h2>New case</h2>
-    <div class="seg" role="radiogroup">${['exchange', 'return', 'escalation'].map((t, i) => `<label><input type="radio" name="type" value="${t}" ${i ? '' : 'checked'}><span class="t-${t}">${t}</span></label>`).join('')}</div>
+    <div class="seg" role="radiogroup">${Object.keys(TYPES).map((t, i) => `<label><input type="radio" name="type" value="${t}" ${i ? '' : 'checked'}><span class="t-${t}">${typeName(t)}</span></label>`).join('')}</div>
     <div class="grid2"><div><label for="ref">Order / reference</label><input id="ref" required maxlength="100"></div>
     <div><label for="cust">Customer</label><input id="cust" required maxlength="150"></div>
     <div><label for="contact">Phone or email (optional)</label><input id="contact" maxlength="200"></div>
     <div><label for="pri">Priority</label><select id="pri"><option value="">Default</option><option>low</option><option>normal</option><option>high</option><option>urgent</option></select></div></div>
+    <label for="loc">Location (optional)</label><div class="row nowrap"><input id="loc" maxlength="200" placeholder="Store, warehouse, area or address"><button type="button" class="btn" id="here">📍 Use my location</button></div>
     <label for="sum">What happened, what's needed</label><textarea id="sum" required maxlength="2000"></textarea>
     ${isAdmin() ? `<label for="asg">Assign to</label><select id="asg">${userOpts('', 'Decide later')}</select>` : ''}
     <div class="err"></div><div class="row"><button class="btn primary">Create case</button><button type="button" class="btn ghost" id="cancel">Cancel</button></div></form>`;
   $('#cancel').onclick = () => go('cases');
+  $('#here').onclick = () => fillHere($('#loc'), $('#here'));
   $('#nc').onsubmit = async (e) => {
     e.preventDefault(); const b = $('#nc .primary'); b.disabled = true;
     try {
       const id = must(await sb.rpc('create_case', {
         p_type: $('input[name=type]:checked').value, p_order_ref: $('#ref').value, p_customer: $('#cust').value,
-        p_contact: $('#contact').value, p_summary: $('#sum').value, p_priority: $('#pri').value || null, p_assignee: $('#asg')?.value || null,
+        p_contact: $('#contact').value, p_location: $('#loc').value, p_summary: $('#sum').value, p_priority: $('#pri').value || null, p_assignee: $('#asg')?.value || null,
       }));
       await loadCases(); go('cases', id); toast(`Case #${id} created`);
     } catch (x) { $('#nc .err').textContent = x.message; b.disabled = false; }
@@ -231,9 +237,12 @@ async function renderCase() {
     .filter(([s]) => s !== c.status).map(([s, l]) => `<button class="btn ${s === 'resolved' || (s === 'in_progress' && c.status === 'assigned') ? 'primary' : ''}" data-s="${s}">${l}</button>`).join('') : '';
   m.innerHTML = `<button class="btn ghost" id="back">← Back</button>
     <article class="card detail">
-      <div class="row between"><span class="type t-${c.type}">${c.type}</span><span class="tags"><span class="tag p-${c.priority}">${c.priority}</span><span class="tag s-${c.status}">${STATUS[c.status]}</span>${overdue(c) ? `<span class="tag late">${idleMin(c)} min idle</span>` : ''}</span></div>
+      <div class="row between"><span class="type t-${c.type}">${typeName(c.type)}</span><span class="tags"><span class="tag p-${c.priority}">${c.priority}</span><span class="tag s-${c.status}">${STATUS[c.status]}</span>${overdue(c) ? `<span class="tag late">${idleMin(c)} min idle</span>` : ''}</span></div>
       <h2><span class="num">#${c.id}</span> ${esc(c.order_ref)}</h2>
       <p><b>${esc(c.customer)}</b>${c.contact ? ` · <span class="sel">${esc(c.contact)}</span>` : ''}</p>
+      <div class="loc" id="locview">${c.location ? `📍 <span class="sel">${esc(c.location)}</span> <a href="${esc(mapsUrl(c.location))}" target="_blank" rel="noopener">Open in Maps</a>` : '<span class="muted">No location</span>'}
+        ${canWork ? `<button class="btn small" id="locedit">${c.location ? 'Change' : 'Add location'}</button>` : ''}</div>
+      <div class="row nowrap" id="locform" hidden><input id="loc" maxlength="200" value="${esc(c.location)}" placeholder="Store, warehouse, area or address"><button type="button" class="btn small" id="here">📍</button><button class="btn primary small" id="locsave">Save</button></div>
       <p class="pre">${esc(c.summary)}</p>
       <p class="muted small">Opened ${ago(c.created_at)} by ${esc(nameOf(c.created_by))} · ${c.assignee ? 'Assigned to <b>' + esc(nameOf(c.assignee)) + '</b>' : 'Not assigned'}</p>
       ${isAdmin() && !done ? `<div class="row"><select id="asg">${userOpts(c.assignee, 'Pick a teammate…')}</select><button class="btn primary" id="assign">${c.assignee ? 'Reassign' : 'Assign'}</button></div>` : ''}
@@ -248,16 +257,34 @@ async function renderCase() {
     catch (x) { $('#err').textContent = x.message; ev.target.disabled = false; }
   };
   $('#back').onclick = () => go(state.view);
+  if ($('#locedit')) {
+    $('#locedit').onclick = () => { $('#locform').hidden = false; $('#locedit').hidden = true; $('#loc').focus(); };
+    $('#here').onclick = () => fillHere($('#loc'), $('#here'));
+    $('#locsave').onclick = act(async () => must(await sb.rpc('set_location', { p_case: c.id, p_location: $('#loc').value })));
+  }
   m.querySelectorAll('[data-s]').forEach((b) => b.onclick = act(async () => must(await sb.rpc('set_status', { p_case: c.id, p_status: b.dataset.s, p_note: $('#note').value }))));
   $('#post').onclick = act(async () => must(await sb.rpc('add_note', { p_case: c.id, p_body: $('#note').value })));
   $('#assign') && ($('#assign').onclick = act(async () => { if (!$('#asg').value) throw new Error('Pick a teammate first'); must(await sb.rpc('assign_case', { p_case: c.id, p_assignee: $('#asg').value })); }));
+}
+
+// fills a location box with this device's coordinates ("12.97160, 77.59460"), which open as a pin in Maps
+function fillHere(input, btn) {
+  if (!navigator.geolocation) return toast("This device can't share its location");
+  const label = btn.textContent; btn.disabled = true; btn.textContent = 'Locating…';
+  navigator.geolocation.getCurrentPosition((pos) => {
+    input.value = `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
+    btn.disabled = false; btn.textContent = label;
+  }, (e) => {
+    btn.disabled = false; btn.textContent = label;
+    toast(e.code === 1 ? 'Location is blocked for this site. Allow it in your browser settings, or type the place instead.' : "Couldn't get your location. Type the place instead.");
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
 }
 
 function renderOverview() {
   const open = state.cases.filter((c) => !['resolved', 'closed'].includes(c.status));
   const n = (t) => open.filter((c) => c.type === t).length;
   const tiles = [['Unassigned', open.filter((c) => !c.assignee).length, 'warn'], ['Overdue', open.filter(overdue).length, 'late'],
-    ['Open exchanges', n('exchange'), ''], ['Open returns', n('return'), ''], ['Open escalations', n('escalation'), '']];
+    ...Object.entries(TYPES).map(([t, [, many]]) => [`Open ${many.toLowerCase()}`, n(t), ''])];
   const people = state.members.filter((m) => m.active).map((m) => {
     const mine = open.filter((c) => c.assignee === m.user_id);
     return { m, open: mine.length, notStarted: mine.filter((c) => c.status === 'assigned').length, late: mine.filter(overdue).length };
