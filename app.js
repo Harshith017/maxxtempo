@@ -1566,7 +1566,7 @@ let restT = null;
 const restOn = () => prof().rest_timer !== false;
 function startRest(sec){
   if (!restOn()) return;
-  sec = sec || Number(prof().rest_default) || 90;
+  sec = sec || Number(prof().rest_default) || 180;
   S.rest = {end: Date.now() + sec*1000, total: sec}; tickRest(); pushRest();
 }
 // +15 / +30 / +60 add to the time that's left (and back to a full bar if it had run out).
@@ -1611,7 +1611,7 @@ document.addEventListener('focusout', () => setTimeout(() => { if (!isField(docu
 function workoutFold(){
   const p = prof();
   return `<label class="check"><input type="checkbox" data-action="restToggle" ${restOn()?'checked':''}> Show a rest timer after I log sets</label>
-    <label class="field">Default rest<select data-action="restDefault">${[45,60,90,120,150,180].map(v=>`<option value="${v}" ${Number(p.rest_default||90)===v?'selected':''}>${v<60?v+' s':`${Math.floor(v/60)}:${pad(v%60)} min`}</option>`).join('')}</select></label>
+    <label class="field">Default rest<select data-action="restDefault">${[45,60,90,120,150,180,240].map(v=>`<option value="${v}" ${Number(p.rest_default||180)===v?'selected':''}>${v<60?v+' s':`${Math.floor(v/60)}:${pad(v%60)} min`}</option>`).join('')}</select></label>
 `;
 }
 
@@ -1976,7 +1976,7 @@ function viewGym(){
     ${sel ? exerciseDetail(sel) : ''}
     <section class="panel folds" aria-label="Exercise library and settings">
       ${fold('g-lib', 'Exercise library', libCount() ? `${n0(libCount())} exercises with how-to` : 'loading…', libraryHtml())}
-      ${fold('g-settings', 'Workout settings', restOn()?`rest timer ${Number(prof().rest_default||90)} s`:'rest timer off', workoutFold())}
+      ${fold('g-settings', 'Workout settings', restOn()?`rest timer ${(r=>r<60?r+' s':`${Math.floor(r/60)}:${pad(r%60)} min`)(Number(prof().rest_default||180))}`:'rest timer off', workoutFold())}
     </section>
   </div>`;
 }
