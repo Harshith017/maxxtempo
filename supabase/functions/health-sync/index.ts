@@ -1,8 +1,9 @@
 // MaxxTempo — automatic Apple Health sync via an iPhone Shortcut.
 //
-// The Shortcut reads today's steps, active energy and sleep from Apple Health
+// The Shortcut reads today's steps and active energy from Apple Health
 // (which also holds Garmin data when Garmin Connect shares to Health) and POSTs:
-//   {"key": "<sync key>", "date": "2026-09-27", "steps": 8400, "active_kcal": 520, "sleep_min": 430}
+//   {"key": "<sync key>", "date": "2026-09-27", "steps": 8400, "active_kcal": 520}
+// The app doesn't track sleep: older Shortcuts that still send it are accepted and the sleep is ignored.
 // The sync key is created in the app (Settings → Watch & health) and only its
 // SHA-256 hash is stored. Values land in the `health` collection (one doc per
 // day), which the app lays over that day's own health numbers.
@@ -53,35 +54,6 @@ function num(v: unknown): number | null {
   if (Array.isArray(v)) { const xs = v.map(num).filter((x): x is number => x != null); return xs.length ? xs.reduce((a, b) => a + b, 0) : null; }
   const parts = String(v).split(/[\n;]+/).map((s) => s.replace(/,/g, "").match(/-?\d+(\.\d+)?/)).filter(Boolean).map((m) => Number(m![0]));
   return parts.length ? parts.reduce((a, b) => a + b, 0) : null;
-}
-// Shortcuts' own duration format, one line per sleep segment: "7:12:30" (h:mm:ss) or,
-// under an hour, "45:00" / "3:20" (m:ss). Minutes, or null if that's not the format.
-function clockText(v: unknown): number | null {
-  if (typeof v !== "string") return null;
-  const lines = v.split(/[\n;,]+/).map((x) => x.trim()).filter(Boolean);
-  if (!lines.length || !lines.every((x) => /^\d+:\d{2}(:\d{2})?$/.test(x))) return null;
-  return lines.reduce((sum, x) => { const p = x.split(":").map(Number); return sum + (p.length === 3 ? p[0] * 60 + p[1] + p[2] / 60 : p[0] + p[1] / 60); }, 0);
-}
-// Durations written out with units, e.g. "7 hr 10 min", "7h 10m", "25,800 sec".
-// Several lines (one per sleep segment) are added up. Minutes, or null without units.
-function durationText(v: unknown): number | null {
-  const c = clockText(v); if (c != null) return c;
-  if (typeof v !== "string" || !/\d\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes|s|sec|secs|second|seconds)\b/i.test(v)) return null;
-  let total = 0;
-  for (const [, n, u] of v.replace(/,/g, "").matchAll(/(\d+(?:\.\d+)?)\s*(h|hr|hrs|hours?|m|mins?|minutes?|s|secs?|seconds?)\b/gi)) {
-    const x = Number(n), k = u.toLowerCase()[0];
-    total += k === "h" ? x * 60 : k === "m" ? x : x / 60;
-  }
-  return total;
-}
-// Sleep may arrive as minutes, hours or seconds; take the named field, else guess by size.
-function sleepMinutes(b: Record<string, unknown>): number | null {
-  for (const f of ["sleep", "sleep_min", "sleep_minutes", "sleep_hours", "sleep_seconds"]) { const v = b[f]; const d = durationText(Array.isArray(v) ? v.map(String).join("\n") : v); if (d != null) return d; }
-  const s = num(b.sleep_seconds); if (s != null) return s / 60;
-  const m = num(b.sleep_min ?? b.sleep_minutes); if (m != null) return m;
-  const h = num(b.sleep_hours); if (h != null) return h * 60;
-  const g = num(b.sleep); if (g == null) return null;
-  return g <= 24 ? g * 60 : g <= 1440 ? g : g / 60;
 }
 // What arrived, without any values: content type, field names and their types.
 // Values appear only as their format, digits masked ("9999 count", "9 hr 99 min"),
@@ -162,15 +134,15 @@ Deno.serve(async (req) => {
     const steps = within(num(body.steps), 0, 150_000); if (steps != null) vals.steps = steps;
     const active = within(num(body.active_kcal ?? body.active_energy ?? body.active), 0, 10_000); if (active != null) vals.active_kcal = active;
     const resting = within(num(body.resting_kcal ?? body.resting_energy ?? body.resting), 0, 6_000); if (resting != null) vals.resting_kcal = resting;
-    const sleep = within(sleepMinutes(body), 0, 1_200); if (sleep != null && sleep > 0) vals.sleep_min = sleep;
-    if (!Object.keys(vals).length) return done(400, "no_values", "Nothing to save. Send steps, active_kcal and/or sleep_min.");
+    if (!Object.keys(vals).length) return done(400, "no_values", "Nothing to save. Send steps and/or active_kcal.");
 
     const { data: cur } = await admin.from("docs").select("data").eq("user_id", hk.user_id).eq("collection", "health").eq("id", date).maybeSingle();
-    const data = { ...(cur?.data ?? {}), ...vals, date, synced_at: new Date().toISOString(), source: "shortcut" };
+    const { sleep_min: _sleep, ...kept } = (cur?.data ?? {}) as Record<string, unknown>;
+    const data = { ...kept, ...vals, date, synced_at: new Date().toISOString(), source: "shortcut" };
     const { error } = await admin.from("docs").upsert({ user_id: hk.user_id, collection: "health", id: date, data, updated_at: new Date().toISOString() });
     if (error) throw error;
     await admin.from("health_keys").update({ last_sync_at: new Date().toISOString() }).eq("user_id", hk.user_id);
-    const said = [vals.steps != null && `${vals.steps} steps`, vals.active_kcal != null && `${vals.active_kcal} active kcal`, vals.sleep_min != null && `${Math.floor(vals.sleep_min / 60)}h ${vals.sleep_min % 60}m sleep`].filter(Boolean).join(", ");
+    const said = [vals.steps != null && `${vals.steps} steps`, vals.active_kcal != null && `${vals.active_kcal} active kcal`].filter(Boolean).join(", ");
     return done(200, "ok", `MaxxTempo: saved ${said} for ${date}.`, { date, saved: vals });
   } catch (e) {
     console.error("health-sync", e instanceof Error ? e.message : e);
