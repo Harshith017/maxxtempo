@@ -55,8 +55,8 @@ console.log('Exercises');
 // free-exercise-db
 {
   const src = await cached('free-exercise-db.json', () => getJson('https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json'));
-  const G = { abdominals: 'core', abductors: 'glutes', adductors: 'legs', biceps: 'biceps', calves: 'legs', chest: 'chest', forearms: 'biceps', glutes: 'glutes',
-    hamstrings: 'legs', lats: 'back', 'lower back': 'back', 'middle back': 'back', neck: 'shoulders', quadriceps: 'legs', shoulders: 'shoulders', traps: 'back', triceps: 'triceps' };
+  const G = { abdominals: 'core', abductors: 'glutes', adductors: 'quads', biceps: 'biceps', calves: 'calves', chest: 'chest', forearms: 'biceps', glutes: 'glutes',
+    hamstrings: 'hamstrings', lats: 'back', 'lower back': 'back', 'middle back': 'back', neck: 'shoulders', quadriceps: 'quads', shoulders: 'shoulders', traps: 'back', triceps: 'triceps' };
   const items = src.map(e => ({
     n: e.name, g: e.category === 'cardio' ? 'cardio' : G[(e.primaryMuscles || [])[0]] || 'full body',
     k: e.category === 'cardio' ? 'c' : (!e.equipment || e.equipment === 'body only') ? 'b' : 'w',
@@ -74,14 +74,14 @@ console.log('Exercises');
     while (url) { const d = await getJson(url); out.push(...d.results); url = d.next; await sleep(400); }
     return out;
   });
-  const cat = { Abs: 'core', Back: 'back', Calves: 'legs', Cardio: 'cardio', Chest: 'chest', Legs: 'legs', Shoulders: 'shoulders' };
+  const cat = { Abs: 'core', Back: 'back', Calves: 'calves', Cardio: 'cardio', Chest: 'chest', Legs: 'legs', Shoulders: 'shoulders' };
   const items = [];
   for (const e of all) {
     const en = (e.translations || []).find(t => t.language === 2); if (!en || !en.name) continue;
     const mus = (e.muscles || []).map(m => m.name_en || m.name);
     let g = cat[e.category?.name];
     if (e.category?.name === 'Arms') g = mus.some(m => /triceps/i.test(m)) ? 'triceps' : 'biceps';
-    if (g === 'legs' && /glute/i.test(mus[0] || '')) g = 'glutes';
+    if (g === 'legs') g = /glute/i.test(mus[0] || '') ? 'glutes' : /calf|calves|soleus|gastrocnemius/i.test(mus[0] || '') ? 'calves' : /hamstring|biceps femoris/i.test(mus[0] || '') ? 'hamstrings' : 'quads';
     const eq = (e.equipment || []).map(x => x.name);
     const img = (e.images || []).find(i => i.is_main) || (e.images || [])[0];
     items.push({ n: tc(en.name), g: g || 'full body', k: g === 'cardio' ? 'c' : (!eq.length || eq.every(x => /none|bodyweight|mat/i.test(x))) ? 'b' : 'w',
@@ -103,7 +103,7 @@ console.log('Exercises');
   });
   const T = { biceps: 'biceps', forearms: 'biceps', triceps: 'triceps', glutes: 'glutes', abductors: 'glutes', abs: 'core', 'serratus anterior': 'core',
     lats: 'back', traps: 'back', 'upper back': 'back', spine: 'back', pectorals: 'chest', delts: 'shoulders', 'levator scapulae': 'shoulders',
-    quads: 'legs', hamstrings: 'legs', calves: 'legs', adductors: 'legs', 'cardiovascular system': 'cardio' };
+    quads: 'quads', hamstrings: 'hamstrings', calves: 'calves', adductors: 'quads', 'cardiovascular system': 'cardio' };
   const seen = new Set(); const items = [];
   for (const e of all) {
     if (seen.has(e.exerciseId)) continue; seen.add(e.exerciseId);

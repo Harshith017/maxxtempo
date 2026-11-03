@@ -72,24 +72,24 @@ const ROWS = [
 ['Close-Grip Bench Press','triceps','close grip bench|close grip bench press|cgbp','w'],
 ['Tricep Dip','triceps','dip|dips|tricep dip|tricep dips|triceps dips|parallel bar dip|bench dip|bench dips','b'],
 ['Tricep Kickback','triceps','kickback|kickbacks|tricep kickback|tricep kickbacks','w'],
-// legs
-['Back Squat','legs','squat|squats|back squat|back squats|barbell squat|bb squat','w'],
-['Front Squat','legs','front squat|front squats','w'],
-['Goblet Squat','legs','goblet squat|goblet squats','w'],
-['Smith Machine Squat','legs','smith squat|smith machine squat|smith squats','w'],
-['Hack Squat','legs','hack squat|hack squats','w'],
-['Leg Press','legs','leg press|leg presses|leg press machine','w'],
-['Romanian Deadlift','legs','romanian deadlift|rdl|rdls|stiff leg deadlift|sldl|dumbbell rdl','w'],
-['Walking Lunge','legs','lunge|lunges|walking lunge|walking lunges|dumbbell lunges','w'],
-['Bulgarian Split Squat','legs','bulgarian split squat|bulgarian|split squat|split squats|bss','w'],
-['Step-Up','legs','step up|step ups|stepup|stepups','w'],
-['Leg Extension','legs','leg extension|leg extensions|quad extension','w'],
-['Lying Leg Curl','legs','leg curl|leg curls|lying leg curl|hamstring curl|hamstring curls','w'],
-['Seated Leg Curl','legs','seated leg curl|seated leg curls|seated hamstring curl','w'],
-['Standing Calf Raise','legs','calf raise|calf raises|standing calf raise|calves','w'],
-['Seated Calf Raise','legs','seated calf raise|seated calf raises|seated calves','w'],
-['Adductor Machine','legs','adductor|adductors|adductor machine|inner thigh','w'],
-['Bodyweight Squat','legs','bodyweight squat|bodyweight squats|air squat|air squats','b'],
+// legs: quads, hamstrings and calves (glutes below)
+['Back Squat','quads','squat|squats|back squat|back squats|barbell squat|bb squat','w'],
+['Front Squat','quads','front squat|front squats','w'],
+['Goblet Squat','quads','goblet squat|goblet squats','w'],
+['Smith Machine Squat','quads','smith squat|smith machine squat|smith squats','w'],
+['Hack Squat','quads','hack squat|hack squats','w'],
+['Leg Press','quads','leg press|leg presses|leg press machine','w'],
+['Romanian Deadlift','hamstrings','romanian deadlift|rdl|rdls|stiff leg deadlift|sldl|dumbbell rdl','w'],
+['Walking Lunge','quads','lunge|lunges|walking lunge|walking lunges|dumbbell lunges','w'],
+['Bulgarian Split Squat','quads','bulgarian split squat|bulgarian|split squat|split squats|bss','w'],
+['Step-Up','quads','step up|step ups|stepup|stepups','w'],
+['Leg Extension','quads','leg extension|leg extensions|quad extension','w'],
+['Lying Leg Curl','hamstrings','leg curl|leg curls|lying leg curl|hamstring curl|hamstring curls','w'],
+['Seated Leg Curl','hamstrings','seated leg curl|seated leg curls|seated hamstring curl','w'],
+['Standing Calf Raise','calves','calf raise|calf raises|standing calf raise|calves','w'],
+['Seated Calf Raise','calves','seated calf raise|seated calf raises|seated calves','w'],
+['Adductor Machine','quads','adductor|adductors|adductor machine|inner thigh','w'],
+['Bodyweight Squat','quads','bodyweight squat|bodyweight squats|air squat|air squats','b'],
 // glutes
 ['Hip Thrust','glutes','hip thrust|hip thrusts|barbell hip thrust|glute bridge|glute bridges','w'],
 ['Abductor Machine','glutes','abductor|abductors|abductor machine|hip abduction|outer thigh','w'],
@@ -163,7 +163,7 @@ function buildIndex(known) {
     const k = normAlias(kx.name); if (!k || !kx.name) continue;
     const lib = idx.find(x => x.k === k);
     const old = lib && lib.e;
-    const e = old ? { ...old, name: kx.name } : { name: kx.name, group: kx.group || 'full body', kind: kx.group === 'cardio' ? 'c' : 'w', met: kx.met || null, aliases: [] };
+    const e = old ? { ...old, name: kx.name } : { name: kx.name, group: fixGroup(kx.group, kx.name) || 'full body', kind: kx.group === 'cardio' ? 'c' : 'w', met: kx.met || null, aliases: [] };
     if (old) for (const x of idx) if (x.e === old) x.e = e;
     idx.push({ k, e });
   }
@@ -171,7 +171,7 @@ function buildIndex(known) {
   const taken = new Set(idx.map(x => x.k));
   for (const l of LIBS) for (const it of l.items) {
     if (taken.has(it.nk)) continue; taken.add(it.nk);
-    idx.push({ k: it.nk, e: { name: it.n, group: it.g, kind: it.k, met: null, aliases: [], lib: l.source } });
+    idx.push({ k: it.nk, e: { name: it.n, group: fixGroup(it.g, it.n, it.mu), kind: it.k, met: null, aliases: [], lib: l.source } });
   }
   idx.sort((a, b) => b.k.length - a.k.length);
   return idx;
@@ -222,7 +222,7 @@ function search(text, limit = 40) {
   const out = [], seen = new Set();
   const add = (name, group, source) => { const k = norm(name); if (seen.has(k)) return; seen.add(k); out.push({ name, group, source }); };
   for (const e of EX) if (hit(norm(e.name)) || e.aliases.some(a => hit(norm(a)))) add(e.name, e.group, 'MaxxTempo');
-  for (const l of LIBS) for (const it of l.items) if (hit(it.nk)) add(it.n, it.g, l.source);
+  for (const l of LIBS) for (const it of l.items) if (hit(it.nk)) add(it.n, fixGroup(it.g, it.n, it.mu), l.source);
   return out.sort((a, b) => (b.source === 'MaxxTempo') - (a.source === 'MaxxTempo') || a.name.length - b.name.length).slice(0, limit);
 }
 
@@ -326,11 +326,24 @@ function parsePart(raw, ctx) {
 
 /* Recovery for the muscles trained, from the sets logged: big muscle groups and
    heavy or high-volume work need longer. */
-const BIG = new Set(['legs', 'back', 'glutes', 'chest', 'full body']);
+const BIG = new Set(['quads', 'hamstrings', 'back', 'glutes', 'chest', 'full body']);
+/* Legs are split into quads, hamstrings, glutes and calves. Older logs and library rows
+   that just say "legs" are sorted by the muscle listed first, then by the exercise name. */
+const LEG_RULES = [
+  ['calves', /\b(calf|calves|soleus|gastrocnemius|tibialis)\b/],
+  ['hamstrings', /\b(hamstrings?|biceps femoris|leg curls?|hamstring curls?|rdls?|romanian|stiff[ -]?leg|good mornings?|nordic)\b/],
+  ['glutes', /\b(glutes?|gluteus|hip thrusts?|glute bridges?|bridges?|kickbacks?|abductors?|hip abduction)\b/],
+];
+function legGroup(name, muscles) {
+  const first = String((muscles || [])[0] || '').toLowerCase(), n = String(name || '').toLowerCase();
+  for (const t of [first, n]) for (const [g, re] of LEG_RULES) if (t && re.test(t)) return g;
+  return 'quads';
+}
+const fixGroup = (g, name, muscles) => g === 'legs' ? legGroup(name, muscles) : g;
 function recovery(exercises) {
   const by = new Map();
-  for (const x of exercises) { if (x.muscle_group === 'cardio') continue;
-    const g = by.get(x.muscle_group) || { sets: 0, heavy: 0 }; g.sets += x.sets.length; g.heavy += x.sets.filter(s => s.reps <= 6 && s.weight > 0).length; by.set(x.muscle_group, g); }
+  for (const x of exercises) { if (x.muscle_group === 'cardio') continue; const mg = fixGroup(x.muscle_group, x.name);
+    const g = by.get(mg) || { sets: 0, heavy: 0 }; g.sets += x.sets.length; g.heavy += x.sets.filter(s => s.reps <= 6 && s.weight > 0).length; by.set(mg, g); }
   if (!by.size) return null;
   let hours = 0;
   for (const [m, g] of by) {
@@ -341,9 +354,9 @@ function recovery(exercises) {
   const list = muscles.length > 1 ? muscles.slice(0, -1).join(', ') + ' and ' + muscles[muscles.length - 1] : muscles[0];
   return { muscles, hours, source: 'app',
     summary: `Give your ${list} about ${hours} hours before training them hard again.`,
-    tips: ['Hit your protein target today and tomorrow.', 'Aim for 7–9 hours of sleep tonight.', hours >= 72 ? 'Light movement or mobility work tomorrow helps; skip heavy work for these muscles.' : 'Other muscle groups or light cardio are fine tomorrow.'] };
+    tips: ['Hit your protein target today and tomorrow.', 'Drink enough water today, more if you sweated a lot.', hours >= 72 ? 'Light movement or mobility work tomorrow helps; skip heavy work for these muscles.' : 'Other muscle groups or light cardio are fine tomorrow.'] };
 }
 
-const api = { EXERCISES: EX, norm, buildIndex, parsePart, readSets, readCardio, recovery, setLibraries, libVersion, howto, search, libraries: () => LIBS };
+const api = { EXERCISES: EX, legGroup, fixGroup, norm, buildIndex, parsePart, readSets, readCardio, recovery, setLibraries, libVersion, howto, search, libraries: () => LIBS };
 if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Gym = api;
 })(this);

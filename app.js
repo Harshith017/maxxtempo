@@ -32,12 +32,14 @@ const actId = a => a==='athlete' ? 'very' : (ACTIVITY[a] ? a : 'light');
 const GOALS = {lose:{label:'Lose fat',ppk:2.0},maintain:{label:'Maintain / recomp',ppk:1.6},gain:{label:'Build muscle',ppk:1.8}};
 const DEFAULT_PROFILE = {name:'',sex:'male',age:25,birth:'',body_fat:null,maint_source:'auto',eat_back:true,height_cm:170,weight_kg:70,activity:'light',goal:'maintain',goal_rate:0.5,calorie_override:null,protein_override:null,carbs_override:null,fat_override:null,water_override_ml:null,steps_goal:10000,stack:[],watch_workouts:false};
 const MEALS = ['breakfast','lunch','snack','dinner'];
-const MUSCLES = ['chest','back','shoulders','biceps','triceps','legs','glutes','core','full body','cardio'];
+const MUSCLES = ['chest','back','shoulders','biceps','triceps','quads','hamstrings','glutes','calves','core','full body','cardio'];
+// Older logs and routines say "legs": sort them into quads, hamstrings, glutes or calves.
+const fixGroup = (g, name) => g==='legs' && typeof Gym!=='undefined' ? Gym.legGroup(name) : g;
 const EXAMPLES = [
   '200g chicken breast, 150g cooked rice, 1 tbsp ghee',
   '2 rotis, 1 katori dal, 100g paneer bhurji',
   '500ml water',
-  'slept 6h 50m, 8400 steps',
+  '8400 steps today',
 ];
 
 /* ---------- helpers ---------- */
@@ -162,9 +164,11 @@ const emptyDay = date => ({date, foods:[], water:[], exercises:[], weight_kg:nul
 const getDay = date => S.days.get(date) || emptyDay(date);
 function mergeDays(){
   const m = new Map(S.daysRaw || []);
+  for (const [date, d] of m) if ((d.exercises||[]).some(e => e.muscle_group==='legs'))
+    m.set(date, {...d, exercises:d.exercises.map(e => e.muscle_group==='legs' ? {...e, muscle_group:fixGroup('legs', e.name)} : e)});
   for (const [date, h] of S.healthSync || []) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-    const add = {}; for (const k of ['steps','active_kcal','resting_kcal','sleep_min']) if (Number(h[k]) >= 0 && h[k] != null) add[k] = Number(h[k]);
+    const add = {}; for (const k of ['steps','active_kcal','resting_kcal']) if (Number(h[k]) >= 0 && h[k] != null) add[k] = Number(h[k]);
     const d = m.get(date) || emptyDay(date);
     m.set(date, {...d, date, health:{...(d.health||{}), ...add}, health_synced_at:h.synced_at || null});
   }
@@ -354,7 +358,7 @@ Read the entry${hasPhoto?' and the attached photo of the food':''} and reply wit
 "exercises":[{"name":"Barbell Bench Press","muscle_group":"chest","sets":[{"weight_kg":60,"reps":8}],"duration_min":null,"distance_km":null,"incline_pct":null,"avg_hr":null,"met":null,"kcal_estimate":null}],
 "gym_recovery":null,
 "body_weight_kg":null,
-"health":{"steps":null,"sleep_minutes":null,"bed_time":null,"wake_time":null,"active_kcal":null,"resting_kcal":null},
+"health":{"steps":null,"active_kcal":null,"resting_kcal":null},
 "notes":""}
 Rules:
 - One entry per distinct food. Every nutrient number is the TOTAL for that portion, not per 100 g. Use realistic values from standard food composition data (IFCT 2017 for Indian foods, USDA otherwise).
@@ -374,7 +378,7 @@ Rules:
 - When gym exercises are logged, set "gym_recovery" to {"muscles":["chest","triceps"],"hours":48,"summary":"one sentence on how long these muscles need before being trained hard again","tips":["2-3 short concrete tips"]} using the sets and reps logged. Otherwise null.
 - Cardio (treadmill, cycling, rowing, skipping): muscle_group "cardio", sets [], duration_min, plus distance_km, incline_pct and avg_hr only when the entry gives them, and met: the Compendium of Physical Activities MET for that machine and intensity. The app works out calories from these; kcal_estimate is only a fallback.
 - A body weight like "weight 72.5" or "weighed 72.5kg" goes in body_weight_kg.
-- Apple Health data goes in "health": a line starting "health:", a screenshot of the Health app, or statements like "slept 6h 50m" or "8400 steps today". sleep_minutes is time actually asleep (not time in bed); if a sleep number over 1440 is given it is seconds, so divide by 60. bed_time and wake_time are "HH:MM" when known. active_kcal is Active Energy, resting_kcal is Resting Energy. Leave any value you don't see as null. If the photo is a Health screenshot, it is not food.
+- Apple Health data goes in "health": a line starting "health:", a screenshot of the Health app, or statements like "8400 steps today". The app does not track sleep: ignore any sleep, bed time or wake time. active_kcal is Active Energy, resting_kcal is Resting Energy. Leave any value you don't see as null. If the photo is a Health screenshot, it is not food.
 - Leave out anything that is not food, water, supplements, gym, activities, health data or body weight and say so briefly in notes. Put any important assumption in notes, in one short sentence. Use empty arrays when there is nothing.
 ${S.view==='gym' ? '- This entry is from the TRAINING page: fill only exercises, activities, gym_recovery and body_weight_kg. Leave foods, supplements, water and health empty; if the entry has food, say in notes "Log food on the Today page".' : '- This entry is from the FOOD page: leave exercises and activities empty and gym_recovery null. If the entry has gym sets or a sport, say in notes "Log training in Train".'}
 Entry: """${text || '(no text, photo only)'}"""`;
@@ -396,29 +400,19 @@ function normalize(res, date){
   }).filter(x => x.name);
   const exercises = (Array.isArray(res?.exercises)?res.exercises:[]).map(e => {
     const sets = (Array.isArray(e.sets)?e.sets:[]).slice(0,30).map(s => ({weight:Math.round(num(s.weight_kg,1000)*100)/100, reps:Math.round(num(s.reps,1000))})).filter(s=>s.reps>0);
-    const ex = {id:uid(), name:titleCase(e.name)||'Exercise', muscle_group:MUSCLES.includes(e.muscle_group)?e.muscle_group:'full body',
+    const ex = {id:uid(), name:titleCase(e.name)||'Exercise', muscle_group:MUSCLES.includes(fixGroup(e.muscle_group, e.name))?fixGroup(e.muscle_group, e.name):'full body',
       sets, duration_min:num(e.duration_min,600)||null, distance_km:num(e.distance_km,300)||null, incline_pct:num(e.incline_pct,40)||null,
       avg_hr:Math.round(num(e.avg_hr,230))||null, met:num(e.met,20)||null, kcal_hint:num(e.kcal_estimate,3000)||null, time:nowTime()};
     ex.kcal = exerciseKcal(ex, date);
     return ex;
   }).filter(e => e.sets.length || e.duration_min);
-  const h = res?.health||{}; const hm = s => (typeof s==='string' && /^\d{1,2}:\d{2}$/.test(s)) ? s.padStart(5,'0') : null;
-  let sleep = num(h.sleep_minutes,100000); if (sleep>1440) sleep = sleep/60; if (sleep>1440) sleep = 0;
-  const health = {steps:Math.round(num(h.steps,200000))||null, sleep_min:Math.round(sleep)||null, bed_time:hm(h.bed_time), wake_time:hm(h.wake_time),
+  const h = res?.health||{};
+  const health = {steps:Math.round(num(h.steps,200000))||null,
     active_kcal:Math.round(num(h.active_kcal,10000))||null, resting_kcal:Math.round(num(h.resting_kcal,6000))||null};
   const hasHealth = Object.values(health).some(v=>v!==null);
   const activities = (Array.isArray(res?.activities)?res.activities:[]).slice(0,6).map(a => ({sport:titleCase(a.sport)||'Activity', entry:String(a.entry||'').slice(0,400)})).filter(a=>a.sport);
   const gr = res?.gym_recovery; const gym_recovery = gr && num(gr.hours,240) ? {muscles:(Array.isArray(gr.muscles)?gr.muscles:[]).slice(0,8).map(String), hours:num(gr.hours,240), summary:String(gr.summary||'').slice(0,300), tips:(Array.isArray(gr.tips)?gr.tips:[]).slice(0,4).map(x=>String(x).slice(0,160))} : null;
   return {foods, supplements, activities, gym_recovery, exercises, water_ml:Math.round(num(res?.water_ml,10000)), body_weight_kg:num(res?.body_weight_kg,400)||null, health: hasHealth?health:null, notes:String(res?.notes||'').slice(0,300)};
-}
-const fmtSleep = m => `${Math.floor(m/60)}h ${pad(Math.round(m%60))}m`;
-function sleepVerdict(min, age){
-  const [lo,hi] = age<18 ? [480,600] : age>=65 ? [420,480] : [420,540];
-  const h = n => n/60;
-  if (min < lo-60) return {cls:'bad', label:'Too little', note:`About ${n1(h(lo-min))} h short of the ${h(lo)}–${h(hi)} h adults need. Expect lower energy in training and more hunger today. An earlier night will help recovery.`};
-  if (min < lo) return {cls:'warn', label:'A little short', note:`Just under the ${h(lo)}–${h(hi)} h range. Fine for one night; try not to stack several.`};
-  if (min <= hi+30) return {cls:'good', label:'Enough', note:`Inside the ${h(lo)}–${h(hi)} h range recommended for your age. Good for recovery and muscle growth.`};
-  return {cls:'warn', label:'Long night', note:`More than ${h(hi)} h. Fine after a hard week or a match; if it happens often and you still feel tired, it's worth looking into.`};
 }
 const findStack = name => (prof().stack||[]).find(x => exKey(x.name)===exKey(name));
 /* How often a supplement is taken: {type:'daily'}, {type:'days', days:[0..6]} (0 = Sunday),
@@ -589,7 +583,7 @@ function matchFood(text){
   return null;
 }
 const WATER_RE = /^(?:(\d+(?:\.\d+)?)\s*(ml|l|ltr|litres?|liters?|glass(?:es)?|bottles?)\s*(?:of\s+)?water|water\s*(\d+(?:\.\d+)?)\s*(ml|l|ltr|litres?|liters?|glass(?:es)?|bottles?)|(\d+|a|one|two|three|four)\s+(glass(?:es)?|bottles?)\s+(?:of\s+)?water)$/;
-const NON_FOOD_RE = /\b(\d+\s*x\s*\d+|sets?|reps?|bench|squat|deadlift|press|curl|row|pull ?ups?|push ?ups?|lat|gym|workout|nets|match|bowled|overs?|batted|badminton|cricket|football|run|ran|running|walk|walked|cycling|swim|yoga|steps|slept|sleep|weight\s*\d|weighed|health:|creatine|vitamin|supplement|capsule|tablet|fish oil|omega|multivitamin|ashwagandha|electrolyte|pre-?workout|zinc|magnesium)\b/;
+const NON_FOOD_RE = /\b(\d+\s*x\s*\d+|sets?|reps?|bench|squat|deadlift|press|curl|row|pull ?ups?|push ?ups?|lat|gym|workout|nets|match|bowled|overs?|batted|badminton|cricket|football|run|ran|running|walk|walked|cycling|swim|yoga|steps|weight\s*\d|weighed|health:|creatine|vitamin|supplement|capsule|tablet|fish oil|omega|multivitamin|ashwagandha|electrolyte|pre-?workout|zinc|magnesium)\b/;
 // "Yoga Bar" is a food brand, not yoga the activity.
 const YOGA_BAR = /\byoga ?bar\b/gi;
 function parseQty(s){
@@ -792,7 +786,7 @@ async function submitLog(){
       for (const a of localActs) bits.push(`${a.title} ${n0(a.minutes)} min · ${n0(a.kcal)} kcal`);
       if (r.body_weight_kg) bits.push(`weight ${n1(r.body_weight_kg)} kg`);
       if (r.supplements.length) bits.push(r.supplements.map(x=>x.name).join(', '));
-      if (r.health) bits.push('Health data'+(r.health.steps?` (${n0(r.health.steps)} steps`:' (')+(r.health.sleep_min?`${r.health.steps?', ':''}${fmtSleep(r.health.sleep_min)} sleep`:'')+')');
+      if (r.health) bits.push('Health data'+(r.health.steps?` (${n0(r.health.steps)} steps)`:''));
       for (const a of r.activities) enqueueActivity(a, date);
       const how = !needAI ? ' From the built-in tables, no AI used.' : nLocal ? ` ${nLocal} from the built-in tables, the rest read by AI.` : aiFoods ? ' Saved to your food list, so next time it’s instant.' : r.exercises.length ? ' New exercises are remembered, so next time they’re instant.' : '';
       const newPrs = r.exercises.length ? [...prsOn(date).values()].filter(x => r.exercises.some(e => exKey(e.name)===exKey(x.name))) : [];
@@ -871,7 +865,6 @@ function sportProfileText(key){
 function dayContext(date){
   const d = getDay(date), t = dayTotals(d), T = dayTargets(d), H = d.health||{};
   const lines = [];
-  lines.push(`Sleep last night: ${H.sleep_min?fmtSleep(H.sleep_min):'not logged'}`);
   lines.push(`Steps so far: ${H.steps?n0(H.steps):'not logged'}`);
   lines.push(`Eaten so far: ${n0(t.kcal)} of ${n0(T.kcal)} kcal, protein ${n0(t.protein)} of ${n0(T.protein)} g, carbs ${n0(t.carbs)} g, water ${n1(t.water/1000)} L`);
   if ((d.exercises||[]).length) lines.push(`Gym today: ${d.exercises.map(e=>`${e.name} ${(e.sets||[]).length} sets`).join(', ')}`);
@@ -879,7 +872,6 @@ function dayContext(date){
   for (let i=1;i<=3;i++){ const dd=S.days.get(addDays(date,-i)); if(!dd) continue; const bits=[];
     if ((dd.exercises||[]).length) bits.push('gym: '+[...new Set(dd.exercises.map(e=>e.muscle_group))].join('/'));
     for (const a of dd.sports||[]) bits.push(`${actTitle(a)}${a.minutes?' '+n0(a.minutes)+' min':''}${a.rpe?' effort '+a.rpe+'/10':''}${a.stats&&a.stats.balls_bowled?' '+a.stats.balls_bowled+' balls bowled':''}`);
-    if (dd.health&&dd.health.sleep_min) bits.push('slept '+fmtSleep(dd.health.sleep_min));
     if (bits.length) lines.push(`${i} day${i>1?'s':''} ago: ${bits.join('; ')}`); }
   return lines.join('\n');
 }
@@ -901,12 +893,12 @@ The result is ONLY this JSON:
 {"status":"done","title":"Cricket match (T20)","summary":"4 overs of fast bowling, 18 balls batting, fielded the full innings","minutes":190,
 "components":[{"part":"Fast bowling, 4 overs with long run-up","minutes":20,"met":7.5},{"part":"Fielding 20 overs, outfield","minutes":80,"met":3.5}],
 "rpe":7,"stats":{"balls_bowled":24,"balls_faced":18,"overs_fielded":20,"minutes_batted":15},
-"recovery":{"hours":36,"level":"hard","summary":"Two sentences on how hard this was for them today and when they can train hard again.","tips":["3-4 short, specific actions: sleep, food with grams, what to avoid tomorrow, body areas to look after"]},
+"recovery":{"hours":36,"level":"hard","summary":"Two sentences on how hard this was for them today and when they can train hard again.","tips":["3-4 short, specific actions: food with grams, water, what to avoid tomorrow, body areas to look after"]},
 "assumptions":"one short sentence"}
 Rules for the result:
 - Split the whole session into components whose minutes add up to the session length, including waiting, walking back, drinks breaks and time on the bench (MET 1.5-2.5). Use MET values from the Compendium of Physical Activities (2024 edition), adjusted for their role, run-up, intensity, format and level. Fast bowling with a long run-up is roughly 7-8 MET while bowling; spin about 4.5. Give gross METs; the app subtracts this person's own resting burn.
 - rpe is session effort from 1 to 10. stats uses only numbers that apply (null otherwise).
-- recovery.hours is the time until they're ready for another hard session of this kind. Base it on this session's load plus last night's sleep, food and protein eaten so far versus their targets, and training in the last 3 days. For fast bowlers, mention bowling workload (overs this week) when relevant. level is "light", "moderate" or "hard".`;
+- recovery.hours is the time until they're ready for another hard session of this kind. Base it on this session's load plus food and protein eaten so far versus their targets, and training in the last 3 days. For fast bowlers, mention bowling workload (overs this week) when relevant. level is "light", "moderate" or "hard".`;
 }
 function qHtml(questions, answers, ns){
   return questions.map(q => {
@@ -1223,7 +1215,7 @@ Read every test result on the pages and reply with ONLY this JSON:
 "markers":[{"key":"ldl_cholesterol","name":"LDL cholesterol","value":132,"value_text":null,"unit":"mg/dL","ref":"< 100","status":"high","category":"Lipids"}],
 "summary":"2-3 plain sentences on the overall picture",
 "findings":[{"title":"LDL cholesterol is high","detail":"what it means for this person, in plain words","severity":"watch"}],
-"eating":["specific changes with Indian foods and amounts"],"training":["specific changes to training or sport"],"lifestyle":["sleep, sun, stress, alcohol, smoking etc."],
+"eating":["specific changes with Indian foods and amounts"],"training":["specific changes to training or sport"],"lifestyle":["sun, stress, alcohol, smoking etc."],
 "retest":"which tests to repeat and when",
 "see_doctor":false,
 "target_adjustments":{"sat_fat_pct":null,"cholesterol_mg":null,"sugar_pct":null,"sodium_mg":null,"fiber_g":null,"micro_targets":{},"focus":[],"reasons":[]}}
@@ -1345,7 +1337,7 @@ function weekDigest(){
   const lines=[]; const T=targets();
   for (let i=6;i>=0;i--){ const date=addDays(localDate(),-i); const d=S.days.get(date); if(!d) { lines.push(`${date}: nothing logged`); continue; }
     const t=dayTotals(d), H=d.health||{};
-    lines.push(`${date}: ${n0(t.kcal)} kcal, P ${n0(t.protein)} C ${n0(t.carbs)} F ${n0(t.fat)} g, sat fat ${n0(t.micros.sat_fat_g)} g, fibre ${n0(t.fiber)} g, sugar ${n0(t.sugar)} g, sodium ${n0(t.micros.sodium_mg)} mg, water ${n1(t.water/1000)} L${H.sleep_min?`, slept ${fmtSleep(H.sleep_min)}`:''}${H.steps?`, ${n0(H.steps)} steps`:''}${d.weight_kg?`, weight ${n1(d.weight_kg)} kg`:''}; foods: ${(d.foods||[]).map(f=>f.name).slice(0,12).join(', ')||'none'}; training: ${[...(d.sports||[]).map(a=>`${actTitle(a)} ${n0(a.minutes||0)} min effort ${a.rpe||'?'}`), ...((d.exercises||[]).length?[`gym ${[...new Set(d.exercises.map(e=>e.muscle_group))].join('/')} ${d.exercises.reduce((s,e)=>s+(e.sets||[]).length,0)} sets`]:[])].join('; ')||'rest'}; supplements: ${(d.supplements||[]).map(x=>x.name).join(', ')||'none'}`); }
+    lines.push(`${date}: ${n0(t.kcal)} kcal, P ${n0(t.protein)} C ${n0(t.carbs)} F ${n0(t.fat)} g, sat fat ${n0(t.micros.sat_fat_g)} g, fibre ${n0(t.fiber)} g, sugar ${n0(t.sugar)} g, sodium ${n0(t.micros.sodium_mg)} mg, water ${n1(t.water/1000)} L${H.steps?`, ${n0(H.steps)} steps`:''}${d.weight_kg?`, weight ${n1(d.weight_kg)} kg`:''}; foods: ${(d.foods||[]).map(f=>f.name).slice(0,12).join(', ')||'none'}; training: ${[...(d.sports||[]).map(a=>`${actTitle(a)} ${n0(a.minutes||0)} min effort ${a.rpe||'?'}`), ...((d.exercises||[]).length?[`gym ${[...new Set(d.exercises.map(e=>e.muscle_group))].join('/')} ${d.exercises.reduce((s,e)=>s+(e.sets||[]).length,0)} sets`]:[])].join('; ')||'rest'}; supplements: ${(d.supplements||[]).map(x=>x.name).join(', ')||'none'}`); }
   // micronutrient gaps
   const rows=[]; for (let i=0;i<7;i++){ const d=S.days.get(addDays(localDate(),-i)); if (d&&(d.foods||[]).length) rows.push(dayTotals(d)); }
   const gaps = rows.length ? MICROS.filter(m=>m.kind!=='limit').map(m=>({m, p:rows.reduce((s,r)=>s+r.micros[m.key],0)/rows.length/(T.micros[m.key]||1)*100})).sort((a,b)=>a.p-b.p).slice(0,5).map(x=>`${x.m.label} ${Math.round(x.p)}%`).join(', ') : 'n/a';
@@ -1358,7 +1350,7 @@ async function runReview(){
   const prompt = `You are a sports nutritionist and strength & conditioning coach in India reviewing one athlete's last 7 days.
 Athlete: ${p.sex}, ${who(localDate()).age} y, ${p.height_cm} cm, ${n1(who(localDate()).kg)} kg (weight trend), goal ${(GOALS[p.goal]||{}).label}${p.goal!=='maintain'?` at ${p.goal_rate} kg/week`:''}.
 ${T.adaptive.ready?`Measured maintenance from their own logs: ${n0(T.adaptive.tdee)} kcal/day; weight trend ${n1(T.adaptive.kgPerWeek)} kg/week.`:''}
-Daily targets (before training days' extra): ${T.kcal} kcal, protein ${T.protein} g, carbs ${T.carbs} g, fat ${T.fat} g, fibre ${T.fiber} g, water ${n1(T.water_ml/1000)} L, sleep 7-9 h, steps ${n0(p.steps_goal||10000)}.
+Daily targets (before training days' extra): ${T.kcal} kcal, protein ${T.protein} g, carbs ${T.carbs} g, fat ${T.fat} g, fibre ${T.fiber} g, water ${n1(T.water_ml/1000)} L, steps ${n0(p.steps_goal||10000)}.
 Sports: ${Object.values(p.sports||{}).map(s=>`${s.name} (${(s.answers||[]).filter(a=>a.a).map(a=>a.a).join(', ')})`).join('; ')||'not set'}.
 ${rep?`Latest blood test (${rep.report_date}): ${rep.markers.filter(m=>m.status!=='normal').map(m=>`${m.name} ${m.value??m.value_text} ${m.unit} (${m.status})`).join(', ')||'all normal'}.`:'No blood test on file.'}
 Lowest micronutrients this week (average % of target): ${gaps}.
@@ -1395,7 +1387,7 @@ function reviewPanel(){
       <div class="grid two">${[['Eating','eating'],['Training','training'],['Recovery','recovery']].map(([l,k])=>r[k].length?`<div><h3>${l}</h3><ul class="tips">${items(r[k])}</ul></div>`:'').join('')}</div>
       ${r.sample_day.length?`<h3>A day that fits your targets</h3><div class="tablewrap" tabindex="0"><table><tbody>${r.sample_day.map(m=>`<tr><td class="l"><b>${esc(m.meal)}</b></td><td class="l">${esc(m.foods)}</td><td class="r">${n0(m.kcal)} kcal</td><td class="r">${n0(m.protein)} g P</td></tr>`).join('')}
         <tr><td class="l"><b>Total</b></td><td></td><td class="r"><b>${n0(r.sample_day.reduce((s,m)=>s+m.kcal,0))}</b></td><td class="r"><b>${n0(r.sample_day.reduce((s,m)=>s+m.protein,0))} g</b></td></tr></tbody></table></div>`:''}`
-      :'<div class="muted small">Looks at your food, nutrient gaps, sleep, training load, weight trend and any blood-test flags, then tells you what to change next week.</div>'}
+      :'<div class="muted small">Looks at your food, nutrient gaps, training load, weight trend and any blood-test flags, then tells you what to change next week.</div>'}
   </section>`;
 }
 
@@ -1709,17 +1701,11 @@ function loggerHtml(kind){
 }
 function healthPanel(H){
   const p = prof(); const goal = Number(p.steps_goal)||10000;
-  if (!H.steps && !H.sleep_min && !H.active_kcal && !H.resting_kcal) return `<div class="empty">No Health data for this day yet. Type something like “slept 6h 50m, 8400 steps”, add a screenshot of the Health app, or <button class="linkbtn" data-action="goto" data-view="profile">set up automatic sync</button> (iPhone).</div>`;
-  const v = H.sleep_min ? sleepVerdict(H.sleep_min, who(S.date).age) : null;
+  if (!H.steps && !H.active_kcal && !H.resting_kcal) return `<div class="empty">No Health data for this day yet. Type something like “8400 steps”, add a screenshot of the Health app, or <button class="linkbtn" data-action="goto" data-view="profile">set up automatic sync</button> (iPhone).</div>`;
   return `<div class="hgrid">
-    <div><div class="l">Sleep</div><div class="big" style="font-size:36px">${H.sleep_min?fmtSleep(H.sleep_min):'—'}</div>
-      ${v?`<span class="pill ${v.cls}">${v.label}</span>`:''}${H.bed_time&&H.wake_time?` <span class="muted small">${H.bed_time}–${H.wake_time}</span>`:''}</div>
     <div><div class="l">Steps</div><div class="big" style="font-size:36px">${H.steps?n0(H.steps):'—'}</div>
       ${H.steps?`${meter(H.steps,goal,'var(--water)')}<span class="muted small">${Math.round(H.steps/goal*100)}% of ${n0(goal)}</span>`:''}</div>
   </div>
-  ${v?`<div class="small">${esc(v.note)}</div>`:''}
-  ${(()=>{ const xs=[]; for(let i=0;i<7;i++){ const d=S.days.get(addDays(S.date,-i)); if(d&&d.health&&d.health.sleep_min) xs.push(d.health.sleep_min); }
-     return xs.length>=3 ? `<div class="muted small">7-night average: <b>${fmtSleep(xs.reduce((a,b)=>a+b,0)/xs.length)}</b> over ${xs.length} nights logged.</div>` : ''; })()}
   ${(H.active_kcal||H.resting_kcal)?`<div class="kv"><span>Active energy</span><b>${H.active_kcal?n0(H.active_kcal)+' kcal':'—'}</b><span>Resting energy</span><b>${H.resting_kcal?n0(H.resting_kcal)+' kcal':'—'}</b></div>
   <div class="muted small">Gym sessions count in active energy only if your Apple Watch recorded them.</div>`:''}`;
 }
@@ -1772,7 +1758,7 @@ function exerciseDetail(r){
 /* ---------- shared bits for the new layout ---------- */
 // How a value sits against its target, and the colour for it.
 //   'range': aim for the target (calories, carbs): under → orange, within 10% → violet, over → red
-//   'more' : more is fine (protein, fibre, water, steps, sleep, vitamins): over → blue instead of red
+//   'more' : more is fine (protein, fibre, water, steps, vitamins): over → blue instead of red
 //   'limit': stay under (sugar, sodium, saturated fat…): up to the limit → violet, over → red
 function goalState(v, target, kind){
   if (!(target>0)) return 'plus';
@@ -1817,7 +1803,6 @@ function rings(arcs){
 const ICONS = {
   water:'<path d="M12 3.2c3.2 4.1 6 7.3 6 10.6a6 6 0 0 1-12 0c0-3.3 2.8-6.5 6-10.6z"/>',
   steps:'<path d="M8.2 3.5c1.6 0 2.4 1.8 2.4 4s-.8 4-2.4 4-2.4-1.8-2.4-4 .8-4 2.4-4zM6 13.6h4.4v1.9a2.2 2.2 0 0 1-4.4 0zM15.8 7.3c1.6 0 2.4 1.8 2.4 4s-.8 4-2.4 4-2.4-1.8-2.4-4 .8-4 2.4-4zM13.6 17.4H18v1.9a2.2 2.2 0 0 1-4.4 0z"/>',
-  sleep:'<path d="M19.5 14.6A7.8 7.8 0 1 1 9.4 4.5a6.3 6.3 0 0 0 10.1 10.1z"/>',
 };
 const icon = (k, color) => `<span class="gicon" style="color:${color};background:color-mix(in srgb, ${color} 14%, transparent)"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg></span>`;
 function greeting(){ const h=new Date().getHours(); return h<12?'Good morning':h<17?'Good afternoon':'Good evening'; }
@@ -1826,7 +1811,6 @@ function greeting(){ const h=new Date().getHours(); return h<12?'Good morning':h
 function viewToday(){
   const day = getDay(S.date), t = dayTotals(day), T = dayTargets(day);
   const H = day.health||{}; const B = burnedTotal(day);
-  const sv = H.sleep_min ? sleepVerdict(H.sleep_min, who(S.date).age) : null;
   const byMeal = MEALS.map(m => ({m, items:(day.foods||[]).filter(f=>f.meal===m)})).filter(g=>g.items.length);
   const WT = waterTarget(day, T), goal = Number(prof().steps_goal)||10000;
   const P = (v,tg) => tg>0 ? v/tg*100 : 0;
@@ -1886,13 +1870,12 @@ function viewToday(){
     <section class="panel goals" aria-label="Today's goals">
       <div class="panel-head"><h2>Today’s goals</h2></div>
       ${(()=>{ const full = Math.floor(t.water/250), glasses = Math.min(12, Math.max(4, Math.ceil(WT/250), full));
-        const stW = t.water>0 ? goalState(t.water, WT, 'more') : null, stS = H.steps ? goalState(H.steps, goal, 'more') : null, stZ = H.sleep_min ? goalState(H.sleep_min, 420, 'more') : null;
+        const stW = t.water>0 ? goalState(t.water, WT, 'more') : null, stS = H.steps ? goalState(H.steps, goal, 'more') : null;
         const bar = (v, tg, st) => `<div class="meter"><i style="width:${Math.min(100,P(v,tg))}%;background:${st?stBar(st):'var(--ink-3)'}"></i></div>`;
         return `<div class="grow">${icon('water','var(--water)')}<div class="gt"><b>Water</b><span class="muted small">${fmtL(t.water)} of ${fmtL(WT)} L</span></div>${statePill(stW)}</div>
           <div class="glasses2">${Array.from({length:glasses},(_,i)=>`<button class="gl${i<full?' on':''}" ${i<full?'disabled':'data-action="water" data-ml="250"'} aria-label="${i<full?'Glass drunk':'Add a 250 ml glass'}"><svg viewBox="0 0 24 28" aria-hidden="true"><path class="cup" d="M4 3h16l-2 21a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2z"/><path class="fill" d="M5.4 10h13.2l-1.4 14a1.4 1.4 0 0 1-1.4 1.3H8.2a1.4 1.4 0 0 1-1.4-1.3z"/></svg></button>`).join('')}</div>
           <div class="row">${[500,750].map(ml=>`<button class="btn ghost sm" data-action="water" data-ml="${ml}">+ ${ml} ml</button>`).join('')}${(day.water||[]).length?`<span class="spacer"></span><button class="linkbtn" data-action="undoWater">Undo</button>`:''}</div>
-          <div class="grow">${icon('steps','var(--accent)')}<div class="gt"><b>Steps</b><span class="muted small">${H.steps?n0(H.steps):'0'} of ${n0(goal)}</span></div>${statePill(stS)}</div>${bar(H.steps||0, goal, stS)}
-          <div class="grow">${icon('sleep','var(--fat)')}<div class="gt"><b>Sleep</b><span class="muted small">${H.sleep_min?`${fmtSleep(H.sleep_min)} · ${sv?sv.label.toLowerCase():''}`:'not logged'}</span></div>${statePill(stZ)}</div>${bar(H.sleep_min||0, 420, stZ)}`; })()}
+          <div class="grow">${icon('steps','var(--accent)')}<div class="gt"><b>Steps</b><span class="muted small">${H.steps?n0(H.steps):'0'} of ${n0(goal)}</span></div>${statePill(stS)}</div>${bar(H.steps||0, goal, stS)}`; })()}
     </section>
     ${microsPanel(day)}
   </div>`;
@@ -2009,16 +1992,17 @@ function wkLoad(){ try { S.workout = JSON.parse(localStorage.getItem(WK_KEY)||'n
 function wkSave(){ try { S.workout ? localStorage.setItem(WK_KEY, JSON.stringify(S.workout)) : localStorage.removeItem(WK_KEY); } catch {} }
 const fmtDur = ms => { const s = Math.max(0, Math.floor(ms/1000)), h = Math.floor(s/3600), m = Math.floor(s%3600/60); return h ? `${h}h ${pad(m)}m` : `${m}:${pad(s%60)}`; };
 function exGroup(name){
-  const k = buildSessions().get(exKey(name)); if (k && k.group) return k.group;
+  const k = buildSessions().get(exKey(name)); if (k && k.group) return fixGroup(k.group, name);
   const hits = typeof Gym!=='undefined' ? Gym.search(name, 5) : [];
   const h = hits.find(x => exKey(x.name)===exKey(name)) || hits[0];
-  return h && MUSCLES.includes(h.group) ? h.group : 'full body';
+  return h && MUSCLES.includes(fixGroup(h.group, h.name)) ? fixGroup(h.group, h.name) : 'full body';
 }
 // Last time's working sets for an exercise (shown as "Previous").
 function prevSets(name){ const e = buildSessions().get(exKey(name)); const s = e && e.sessions[e.sessions.length-1]; return s ? s.sets : []; }
 const isBar = name => /barbell|squat|deadlift|bench|overhead press|\bohp\b|\brow\b|hip thrust|good morning|rdl|clean|snatch/i.test(name) && !/dumbbell|\bdb\b|machine|cable|smith|goblet|kettlebell/i.test(name);
 const newSet = (o={}) => ({ id:uid(), type:'normal', weight:'', reps:'', rpe:'', done:false, ...o });
 function wkExercise(name, group, o={}){
+  group = fixGroup(group, name);
   const prev = prevSets(name).filter(s => s.type!=='warmup');
   const n = o.sets || Math.max(prev.length, 3);
   const sets = Array.from({length:n}, (_,i) => newSet({ weight: o.weight!=null&&o.weight!=='' ? String(o.weight) : '', reps: o.reps ? String(o.reps) : '' }));
@@ -2179,7 +2163,7 @@ function openRoutine(id){
   const draw = () => {
     d.innerHTML = `<form class="form" id="rtform" style="gap:12px"><h2 class="full">${orig?'Edit routine':'New routine'}</h2>
       <label class="field full">Name<input id="rt_name" maxlength="40" value="${esc(r.name)}" placeholder="e.g. Push day" required></label>
-      <div class="full rtlist">${r.exercises.map((e,i)=>`<div class="rtrow${e.superset?' ss':''}"><div><b>${esc(e.name)}</b> <span class="tag">${esc(e.group||'')}</span>${e.superset?` <span class="muted small">superset ${esc(e.superset)}</span>`:''}</div>
+      <div class="full rtlist">${r.exercises.map((e,i)=>`<div class="rtrow${e.superset?' ss':''}"><div><b>${esc(e.name)}</b> <span class="tag">${esc(fixGroup(e.group, e.name)||'')}</span>${e.superset?` <span class="muted small">superset ${esc(e.superset)}</span>`:''}</div>
         <div class="rtnums"><label>Sets<input type="number" min="1" max="12" data-rt="sets" data-i="${i}" value="${esc(e.sets||3)}"></label><label>Reps<input type="number" min="1" max="100" data-rt="reps" data-i="${i}" value="${esc(e.reps||'')}" placeholder="8"></label><label>kg<input type="number" step="0.5" min="0" data-rt="weight" data-i="${i}" value="${esc(e.weight||'')}" placeholder="last"></label><label>Warm-ups<input type="number" min="0" max="4" data-rt="warmups" data-i="${i}" value="${esc(e.warmups||0)}"></label></div>
         <div class="row"><button type="button" class="linkbtn" data-rtup="${i}" ${i?'':'disabled'}>Move up</button><button type="button" class="linkbtn" data-rtss="${i}">${e.superset?'Unlink superset':'Superset with next'}</button><button type="button" class="linkbtn" data-rtdel="${i}">Remove</button></div></div>`).join('') || '<div class="muted small">No exercises yet.</div>'}</div>
       <div class="full row"><button type="button" class="btn ghost sm" id="rt_add">+ Add exercise</button></div>
@@ -2310,7 +2294,7 @@ function openHowto(name){
 }
 /* Built-in databases in data/ (see DATA-LICENSES.md), fetched once after sign-in
    and kept by the service worker. The app works without them. */
-const DATA_VER = 1;
+const DATA_VER = 2;
 async function loadData(){
   const get = f => fetch(`data/${f}.json?v=${DATA_VER}`).then(r => r.ok ? r.json() : null).catch(() => null);
   const [free, wger, edb, indb] = await Promise.all([get('ex-free'), get('ex-wger'), get('ex-edb'), get('indb')]);
@@ -2670,7 +2654,6 @@ function viewTrends(){
     ['Protein', r=>r.t?r.t.protein:0, (v,s)=>s?n0(v):`${n0(v)} g`, 'more', r=>r.T.protein, v=>`${n0(v)} g`, `target ${n0(T.protein)} g`],
     ['Burned', r=>r.d&&((r.d.foods||[]).length||(r.d.exercises||[]).length||(r.d.sports||[]).length||Object.keys(r.d.health||{}).length)?burnedTotal(r.d).total:0, (v,s)=>s?k(v):`${n0(v)} kcal`, 'more', 0, v=>`${n0(v)} kcal`, 'training + sports + steps'],
     ['Calories eaten', r=>r.t?r.t.kcal:0, (v,s)=>s?k(v):`${n0(v)} kcal`, 'range', r=>r.T.kcal, v=>`${n0(v)} kcal`, `target ${n0(T.kcal)}`],
-    ['Sleep', r=>r.d&&r.d.health&&r.d.health.sleep_min?r.d.health.sleep_min/60:0, (v,s)=>s?n1(v):fmtSleep(v*60), 'more', 7, v=>fmtSleep(v*60), 'aim for 7–9 h'],
     ['Water', r=>r.t?r.t.water/1000:0, (v,s)=>fmtL(v*1000)+(s?'':' L'), 'more', r=>waterTarget(r.d||emptyDay(r.date), r.T)/1000, v=>`${fmtL(v*1000)} L`, `target ${fmtL(T.water_ml)} L+`],
   ];
   const day = getDay(S.date), dt = dayTotals(day), DT = dayTargets(day);
@@ -2683,7 +2666,6 @@ function viewTrends(){
     ['Fibre', r=>r.t&&r.t.kcal ? goalState(r.t.fiber, r.T.fiber, 'more') : null],
     ['Added sugar (limit)', r=>r.t&&r.t.kcal ? goalState(r.t.sugar, r.T.sugar, 'limit') : null],
     ['Water', r=>r.t&&r.t.water ? goalState(r.t.water, waterTarget(r.d,r.T), 'more') : null],
-    ['Sleep 7 h+', r=>r.d&&r.d.health&&r.d.health.sleep_min ? goalState(r.d.health.sleep_min, 420, 'more') : null],
 
   ];
   const ok = x => x==='at' || x==='plus';
@@ -2742,7 +2724,7 @@ function muscleSets(a, b){
   const out = {}; for (const m of MUSCLES) if (m!=='cardio') out[m] = 0;
   for (const [date,d] of S.days) { if (date<a || date>b) continue;
     for (const e of d.exercises||[]) { const g = e.muscle_group; if (!g || g==='cardio') continue; const n = workingSets(e).length;
-      if (g==='full body') { for (const m of ['chest','back','shoulders','legs','core']) out[m] += n/5; } else out[g] = (out[g]||0) + n; } }
+      if (g==='full body') { for (const m of ['chest','back','shoulders','quads','hamstrings','core']) out[m] += n/6; } else out[g] = (out[g]||0) + n; } }
   return out;
 }
 // A simple front and back figure; each muscle is shaded by how many sets it got.
@@ -2777,11 +2759,11 @@ const BM_FRONT = [
   ['core',      [[-3,187],[-16,186],[-15,207],[-3,209]]],
   ['core',      [[-3,212],[-15,211],[-12,238],[-3,250]]],
   ['core',      [[-19,142],[-36,140],[-44,150],[-41,176],[-38,200],[-42,222],[-22,238],[-19,206]]],   // obliques
-  ['legs',      [[-44,244],[-47,280],[-43,316],[-34,332],[-27,304],[-29,262]]],                    // outer quad
-  ['legs',      [[-28,258],[-25,296],[-22,322],[-14,334],[-11,308],[-15,280]]],                    // inner quad
-  ['legs',      [[-5,262],[-24,256],[-17,282],[-11,300],[-6,286]]],                                 // adductor
-  ['legs',      [[-39,346],[-42,368],[-36,394],[-28,395],[-25,368],[-28,348]]],                    // shin / calf
-  ['legs',      [[-18,348],[-23,370],[-19,392],[-14,394],[-12,364]]],
+  ['quads',     [[-44,244],[-47,280],[-43,316],[-34,332],[-27,304],[-29,262]]],                    // outer quad
+  ['quads',     [[-28,258],[-25,296],[-22,322],[-14,334],[-11,308],[-15,280]]],                    // inner quad
+  ['quads',     [[-5,262],[-24,256],[-17,282],[-11,300],[-6,286]]],                                 // adductor
+  ['calves',    [[-39,346],[-42,368],[-36,394],[-28,395],[-25,368],[-28,348]]],                    // shin / calf
+  ['calves',    [[-18,348],[-23,370],[-19,392],[-14,394],[-12,364]]],
 ];
 const BM_BACK = [
   ['back',      [[0,62],[-12,70],[-40,85],[-30,96],[-14,110],[-8,140],[0,166]]],                     // traps
@@ -2791,10 +2773,10 @@ const BM_BACK = [
   ['triceps',   [[-55,132],[-68,130],[-75,148],[-75,170],[-68,182],[-59,178],[-55,156]]],
   [null,        [[-60,186],[-76,186],[-84,214],[-88,246],[-80,252],[-70,228],[-62,206]]],
   ['glutes',    [[-2,230],[-24,222],[-45,234],[-47,262],[-31,277],[-6,272]]],
-  ['legs',      [[-44,276],[-45,302],[-40,330],[-30,334],[-27,304],[-29,280]]],                    // hamstrings
-  ['legs',      [[-25,280],[-24,316],[-16,332],[-8,302],[-9,284]]],
-  ['legs',      [[-38,344],[-42,366],[-33,384],[-27,364],[-28,344]]],                              // calves
-  ['legs',      [[-25,344],[-25,374],[-18,386],[-13,362],[-15,344]]],
+  ['hamstrings',[[-44,276],[-45,302],[-40,330],[-30,334],[-27,304],[-29,280]]],                    // hamstrings
+  ['hamstrings',[[-25,280],[-24,316],[-16,332],[-8,302],[-9,284]]],
+  ['calves',    [[-38,344],[-42,366],[-33,384],[-27,364],[-28,344]]],                              // calves
+  ['calves',    [[-25,344],[-25,374],[-18,386],[-13,362],[-15,344]]],
 ];
 function bmFigure(muscles, fill, label, sets, U) {
   const title = g => g ? `<title>${titleCase(g)}: ${n0(sets[g]||0)} set${Math.round(sets[g]||0)===1?'':'s'}</title>` : '';
@@ -3086,7 +3068,7 @@ function connectFold(){
   return `${healthSyncHtml()}
     <label class="check"><input type="checkbox" data-action="watchToggle" ${p.watch_workouts?'checked':''}> My watch records my gym and sport sessions (so they’re already in its active calories)</label>
     <ul class="tips">
-      <li><b>Android, Fitbit, Samsung and others:</b> type your day into the log box, like “slept 7h 10m, 9200 steps, active 520 kcal”, or add a screenshot of the watch app’s daily summary with Add photo. The AI reads it.</li>
+      <li><b>Android, Fitbit, Samsung and others:</b> type your day into the log box, like “9200 steps, active 520 kcal”, or add a screenshot of the watch app’s daily summary with Add photo. The AI reads it.</li>
     </ul>
     <div class="muted small">Apple and Garmin don’t let websites read your data directly, which is why the iPhone Shortcut does the sending.</div>`;
 }
@@ -3188,7 +3170,7 @@ async function exportExcel(){
     for (const d of days) {
       const t=dayTotals(d), T=dayTargets(d), H=d.health||{};
       summary.push({Date:d.date, 'Calories eaten':Math.round(t.kcal), 'Calorie target':Math.round(T.kcal), 'Protein (g)':r1(t.protein), 'Carbs (g)':r1(t.carbs), 'Fat (g)':r1(t.fat), 'Fibre (g)':r1(t.fiber), 'Added sugar (g)':r1(t.sugar),
-        'Water (L)':r1(t.water/1000), 'Burned (kcal)':Math.round(burnedTotal(d).total), 'Training (kcal)':Math.round(t.burned||0), Steps:H.steps||'', 'Sleep (h)':H.sleep_min?r1(H.sleep_min/60):'', 'Weight (kg)':d.weight_kg||''});
+        'Water (L)':r1(t.water/1000), 'Burned (kcal)':Math.round(burnedTotal(d).total), 'Training (kcal)':Math.round(t.burned||0), Steps:H.steps||'', 'Weight (kg)':d.weight_kg||''});
       for (const f of d.foods||[]) food.push({Date:d.date, Meal:f.meal, Time:f.time||'', Food:f.name, Quantity:f.quantity||'', Grams:Math.round(f.grams||0), kcal:Math.round(f.kcal||0), 'Protein (g)':r1(f.protein), 'Carbs (g)':r1(f.carbs), 'Fat (g)':r1(f.fat), 'Fibre (g)':r1(f.fiber), 'Sugar (g)':r1(f.sugar), 'Added sugar (g)':r1(addedSugar(f))});
       for (const e of d.exercises||[]) { const sets=e.sets||[]; if (!sets.length) gym.push({Date:d.date, Exercise:e.name, 'Muscle group':e.muscle_group||'', Set:'', 'Weight (kg)':'', Reps:'', Minutes:e.duration_min||'', kcal:Math.round(e.kcal||0)});
         sets.forEach((s,i)=>gym.push({Date:d.date, Exercise:e.name, 'Muscle group':e.muscle_group||'', Set:i+1, 'Weight (kg)':s.weight||0, Reps:s.reps||0, Minutes:'', kcal:i===0?Math.round(e.kcal||0):''})); }
@@ -3883,25 +3865,24 @@ function healthSyncHtml(){
   const when = t => { if (!t) return 'not yet'; const d = new Date(t); return (localDate(d)===localDate() ? 'today' : fmtDate(localDate(d),{day:'numeric',month:'short'})) + ' at ' + d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); };
   const state = H===undefined ? '<div class="muted small">Checking…</div>'
     : H===null ? '<div class="muted small">Couldn’t check the sync status. <button class="linkbtn" data-action="hsReload">Try again</button></div>'
-    : key ? `<div class="hskey"><div class="small"><b>Your sync key</b>. Shown only now: copy it into the Shortcut (step 6). Keep it private; anyone with it can add steps and sleep to your log.</div>
+    : key ? `<div class="hskey"><div class="small"><b>Your sync key</b>. Shown only now: copy it into the Shortcut (step 6). Keep it private; anyone with it can add steps to your log.</div>
         <code class="keybox">${esc(key)}</code><div class="row"><button class="btn sm" data-action="hsCopy" data-what="key">Copy key</button><button class="btn sm ghost" data-action="hsCopy" data-what="address">Copy address</button></div>
         <div class="muted small">Address: <code>${esc(hsUrl())}</code></div></div>`
     : H.connected ? `<div class="row"><span class="pill good">On</span><span class="small">Last sync: ${esc(when(H.last_sync_at))}</span></div>
         <div class="row"><button class="btn sm ghost" data-action="hsCopy" data-what="address">Copy address</button><button class="btn sm ghost" data-action="hsCreate" ${S.hsBusy?'disabled':''}>New key</button><button class="btn sm ghost" data-action="hsRevoke">Turn off</button></div>`
     : `<button class="btn sm" data-action="hsCreate" ${S.hsBusy?'disabled':''}>${S.hsBusy?'Creating…':'Set up automatic sync'}</button>`;
   const steps = `<ol class="tips hsteps">
-      <li><b>Garmin?</b> In Garmin Connect: More → Settings → Connected Apps → Apple Health, and allow steps, active calories and sleep. (Apple Watch: nothing to do.)</li>
+      <li><b>Garmin?</b> In Garmin Connect: More → Settings → Connected Apps → Apple Health, and allow steps and active calories. (Apple Watch: nothing to do.)</li>
       <li>Open the <b>Shortcuts</b> app → <b>+</b> and name it “MaxxTempo sync”.</li>
       <li>Add <b>Find Health Samples</b>: Type <i>Steps</i>, Start Date <i>is today</i>, Group By <i>Day</i>. Then add <b>Calculate Statistics</b>: <i>Sum</i>.</li>
       <li>Add <b>Find Health Samples</b>: Type <i>Active Energy</i>, Start Date <i>is today</i>, Group By <i>Day</i>. Then <b>Calculate Statistics</b>: <i>Sum</i>.</li>
-      <li>Add <b>Find Health Samples</b>: Type <i>Sleep Analysis</i>, End Date <i>is today</i>, Value <i>is not In Bed</i>, Value <i>is not Awake</i>. Then <b>Get Details of Health Samples</b>: <i>Duration</i>, then <b>Calculate Statistics</b>: <i>Sum</i>.</li>
-      <li>Add <b>Get Contents of URL</b> with the address above. Tap the arrow: Method <i>POST</i>, Request Body <i>JSON</i>, and add four <i>Text</i> fields: <code>key</code> = your sync key, <code>steps</code> = the first Statistics, <code>active_kcal</code> = the second, <code>sleep</code> = the third.</li>
+      <li>Add <b>Get Contents of URL</b> with the address above. Tap the arrow: Method <i>POST</i>, Request Body <i>JSON</i>, and add three <i>Text</i> fields: <code>key</code> = your sync key, <code>steps</code> = the first Statistics, <code>active_kcal</code> = the second.</li>
       <li>Tap ▶ to test. It answers “MaxxTempo: saved … steps …”, and Today fills in.</li>
-      <li>Make it automatic: <b>Automation</b> tab → <b>+</b> → <i>Time of Day</i>, 11:45 pm, Daily → <i>Run Immediately</i> → pick “MaxxTempo sync”. Add another at 9 am to see last night’s sleep in the morning.</li>
+      <li>Make it automatic: <b>Automation</b> tab → <b>+</b> → <i>Time of Day</i>, 11:45 pm, Daily → <i>Run Immediately</i> → pick “MaxxTempo sync”.</li>
     </ol>
     <div class="muted small">Steps look about double what the Health app shows? In step 3, add the filter Source <i>is</i> your Apple Watch. Synced numbers replace typed ones for that day.</div>`;
   return `<div class="hsync"><div class="nm">Automatic sync from Apple Health <span class="tag">iPhone</span></div>
-    <div class="muted small">An iPhone Shortcut sends your steps, active calories and sleep every night, including Garmin data once Garmin Connect shares to Apple Health.</div>
+    <div class="muted small">An iPhone Shortcut sends your steps and active calories every night, including Garmin data once Garmin Connect shares to Apple Health.</div>
     ${state}
     ${fold('hs-steps', 'Set up the Shortcut (5 minutes, once)', '', steps, 'inner')}</div>`;
 }

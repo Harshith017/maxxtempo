@@ -37,9 +37,9 @@ test("the same food edited on both: each side's changed fields kept, a clash goe
 
 test("health numbers from both devices are combined", function () {
   var base = day({ health: { steps: 4000 } });
-  var phone = day({ health: { steps: 4000, sleep_min: 420 } });
+  var phone = day({ health: { steps: 4000, active_kcal: 420 } });
   var laptop = day({ health: { steps: 9000 } });
-  assert.deepStrictEqual(merge3(base, phone, laptop).health, { steps: 9000, sleep_min: 420 });
+  assert.deepStrictEqual(merge3(base, phone, laptop).health, { steps: 9000, active_kcal: 420 });
 });
 
 test("a daily-stack supplement added on both devices is kept once", function () {
