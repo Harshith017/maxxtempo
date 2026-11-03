@@ -31,7 +31,7 @@ const ACTIVITY = Object.fromEntries(Calc.ACTIVITY_LEVELS.map(l => [l.id, {f:l.fa
 const actId = a => a==='athlete' ? 'very' : (ACTIVITY[a] ? a : 'light');
 const GOALS = {lose:{label:'Lose fat',ppk:2.0},maintain:{label:'Maintain / recomp',ppk:1.6},gain:{label:'Build muscle',ppk:1.8}};
 const DEFAULT_PROFILE = {name:'',sex:'male',age:25,birth:'',body_fat:null,maint_source:'auto',eat_back:true,height_cm:170,weight_kg:70,activity:'light',goal:'maintain',goal_rate:0.5,calorie_override:null,protein_override:null,carbs_override:null,fat_override:null,water_override_ml:null,steps_goal:10000,stack:[],watch_workouts:false};
-const MEALS = ['breakfast','lunch','snack','dinner'];
+const MEALS = ['breakfast','brunch','lunch','snack','dinner'];
 const MUSCLES = ['chest','back','shoulders','biceps','triceps','quads','hamstrings','glutes','calves','core','full body','cardio'];
 // Older logs and routines say "legs": sort them into quads, hamstrings, glutes or calves.
 const fixGroup = (g, name) => g==='legs' && typeof Gym!=='undefined' ? Gym.legGroup(name) : g;
@@ -368,7 +368,7 @@ Rules:
 - No weight given: assume a typical Indian home portion (1 roti ≈ 40 g, 1 katori dal ≈ 150 g, 1 cup cooked rice ≈ 160 g, 1 egg ≈ 50 g) and set confidence "medium".
 - From a photo: name each item, estimate the portion from visual cues (a dinner plate is about 25 cm), set confidence "medium" or "low".
 - Packaged or branded items: use their label values. Include cooking oil or ghee a dish normally contains.
-- meal is one of breakfast, lunch, snack, dinner: from the entry, otherwise from the time.
+- meal is one of breakfast, brunch, lunch, snack, dinner, only when the entry says which meal it was; otherwise null. Never guess it from the time.
 - Plain water goes only in water_ml (1 glass ≈ 250 ml, 1 bottle ≈ 1000 ml). Other drinks (milk, tea, coffee, juice, shakes) are foods.
 - Supplements (creatine, vitamins, minerals, fish oil, ashwagandha, electrolytes, pre-workout) go in "supplements" with the dose taken and the micronutrients that dose adds, converting units (vitamin D 1,000 IU = 25 mcg; a 1 g fish oil capsule has about 0.3 g omega-3 unless EPA/DHA are given). Leave nutrients the supplement doesn't contain at 0. Protein powders, mass gainers and protein bars have real calories, so they go in "foods" instead.
 - Gym: "bench 60kg 3x8" means 3 sets of 8 reps at 60 kg; "60x8, 65x6" are separate sets of weight x reps; "22.5 x10 x10 x8" is three sets at 22.5 kg. Dumbbell weight is per dumbbell. Bodyweight moves use weight_kg 0 (or the added weight).
@@ -386,7 +386,7 @@ Entry: """${text || '(no text, photo only)'}"""`;
 function normalize(res, date){
   const foods = (Array.isArray(res?.foods)?res.foods:[]).map(f => {
     const micros = {}; for (const m of MICROS) micros[m.key] = num(f[m.key]);
-    const meal = MEALS.includes(f.meal) ? f.meal : guessMeal();
+    const meal = guessMeal() || (MEALS.includes(f.meal) ? f.meal : '');
     const x = {id:uid(), name:titleCase(f.name)||'Food', quantity:String(f.quantity||'').slice(0,40), grams:num(f.grams,5000), meal,
       time:nowTime(), kcal:num(f.kcal,5000), protein:num(f.protein_g,500), carbs:num(f.carbs_g,1000), fat:num(f.fat_g,500),
       fiber:num(f.fiber_g,200), sugar:num(f.sugar_g,500), added_sugar: f.added_sugar_g != null ? num(f.added_sugar_g,500) : (sweetName(f.name) ? num(f.sugar_g,500) : 0), alcohol:num(f.alcohol_g,300), micros, confidence:['high','medium','low'].includes(f.confidence)?f.confidence:'medium', source:S.photo?'photo':'text'};
@@ -443,7 +443,28 @@ function supplementsPanel(day){
     <div class="acts"><button data-action="delSupp" data-id="${x.id}" aria-label="Delete ${esc(x.name)}">✕</button></div></div>`).join('');
   return h;
 }
-function guessMeal(){ const h=new Date().getHours(); return h<11?'breakfast':h<16?'lunch':h<19?'snack':'dinner'; }
+// No automatic meal: food is tagged only when the person picks a meal (chips under the log box)
+// or names it in the entry. Untagged food shows under "No meal tag".
+function guessMeal(){ return MEALS.includes(S.logMeal) ? S.logMeal : ''; }
+function clearLogMeal(){ S.logMeal = ''; document.querySelectorAll('[data-action=logMeal]').forEach(x => x.setAttribute('aria-pressed','false')); }
+const mealOpts = cur => `<option value="" ${!cur?'selected':''}>No meal tag</option>` + MEALS.map(m=>`<option value="${m}" ${m===cur?'selected':''}>${titleCase(m)}</option>`).join('');
+const namedMeal = text => /\bbrunch\b/i.test(text)?'brunch':/breakfast/i.test(text)?'breakfast':/lunch/i.test(text)?'lunch':/dinner/i.test(text)?'dinner':/snack/i.test(text)?'snack':'';
+// Time since the last thing eaten (10 kcal or more, so black coffee and water don't count).
+function lastMeal(){
+  const now = Date.now(); let best = null;
+  for (const [date, d] of S.days) { if (date > localDate()) continue;
+    for (const f of d.foods||[]) { if (!(f.kcal >= 10) || !/^\d{2}:\d{2}$/.test(f.time||'')) continue;
+      const ts = new Date(`${date}T${f.time}:00`).getTime(); if (ts <= now && (!best || ts >= best.ts)) best = {ts, name:f.name}; } }
+  return best;
+}
+function sinceMealHtml(){
+  const m = lastMeal(); if (!m) return '';
+  const mins = Math.floor((Date.now() - m.ts) / 60000), h = Math.floor(mins/60), mm = mins % 60;
+  const dur = h ? `${h}h ${pad(mm)}m` : mm < 1 ? 'just now' : `${mm} min`;
+  const at = new Date(m.ts).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  const day = localDate(new Date(m.ts))===localDate() ? '' : localDate(new Date(m.ts))===addDays(localDate(),-1) ? 'yesterday ' : fmtDate(localDate(new Date(m.ts)),{day:'numeric',month:'short'})+' ';
+  return `<span class="sm-ico" aria-hidden="true">⏱</span> <b>${h>=12?'Fasting':'Since last meal'}: ${dur}</b> <span class="muted small">· ${esc(m.name)}, ${day}${at}</span>`;
+}
 const AI_ERR = {
   session_expired:'You’ve been signed out. Sign in again, then log this entry.',
   daily_cap:'AI limit reached: you’ve used your 30 AI uses for today. Foods, gym sets, food search and barcodes still work without AI; AI is back tomorrow.',
@@ -630,7 +651,7 @@ function gymPart(text, prev){
   try { return Gym.parsePart(text, {index:gymIndex(), prev}); } catch { return null; }
 }
 function localParse(text, date){
-  const meal = /breakfast/i.test(text)?'breakfast':/lunch/i.test(text)?'lunch':/dinner/i.test(text)?'dinner':/snack/i.test(text)?'snack':guessMeal();
+  const meal = guessMeal() || namedMeal(text);
   const foods=[], rest=[], exercises=[]; let water=0, prev=null;
   const gymHit = (p) => { const g = gymPart(p, prev); if (!g) return false;
     if (g.continued) g.exercise.sets.push(...g.sets);
@@ -805,6 +826,7 @@ async function submitLog(){
   if (S.queue.length) runQueue();
 }
 async function saveEntry(date, r){
+  if ((r.foods||[]).length) clearLogMeal();
   await writeDay(date, d => {
     if ((r.sportsLocal||[]).length) d.sports = [...(d.sports||[]), ...r.sportsLocal];
     d.foods.push(...(r.foods||[])); d.exercises.push(...(r.exercises||[]));
@@ -1686,6 +1708,7 @@ function loggerHtml(kind){
     ${kind==='gym' ? queueCard() : ''}
     <textarea id="logText" placeholder="${esc(ph)}" ${S.busy?'disabled':''}></textarea>
     ${kind!=='gym' ? '<div id="fsugg" class="exres fsugg" aria-label="Foods you’ve logged before" hidden></div>' : ''}
+    ${kind!=='gym' ? `<div class="chips mealpick" role="group" aria-label="Meal, optional"><span class="muted small">Meal (optional)</span>${MEALS.map(m=>`<button type="button" class="chip mchip" data-action="logMeal" data-m="${m}" aria-pressed="${S.logMeal===m}">${titleCase(m)}</button>`).join('')}</div>` : ''}
     <div class="row">
       ${S.canPhoto && kind!=='gym' ? `<button class="btn ghost sm" data-action="pickPhoto" ${S.busy?'disabled':''}>Add photo</button>` : ''}
       ${kind!=='gym' ? `<button class="btn ghost sm" data-action="foodSearch" ${S.busy?'disabled':''}>Find food</button><button class="btn ghost sm" data-action="scan" ${S.busy?'disabled':''} aria-label="Scan a barcode">Scan</button>` : ''}
@@ -1695,6 +1718,7 @@ function loggerHtml(kind){
       <button class="btn" data-action="log" ${S.busy?'disabled':''}>${S.busy?'Working…':'Log'}</button>
     </div>
     <div class="status${S.statusErr?' err':''}" id="logStatus" aria-live="polite">${esc(S.status)}</div>
+    ${kind!=='gym'&&S.date===localDate()&&lastMeal()?`<div class="sincemeal" id="sinceMeal" aria-live="off">${sinceMealHtml()}</div>`:''}
     ${kind!=='gym'&&recentFoods().length?fold('d-quick', 'Quick add', `${recentFoods().length} foods you eat often`, `<div class="chips" aria-label="Frequent foods">${recentFoods().map(f=>`<button class="chip" style="border-style:solid" data-action="relog" data-id="${f.id}">${esc(f.name)}${f.quantity?' · '+esc(f.quantity):''}</button>`).join('')}</div>`, 'inline'):''}
     ${kind!=='gym'&&!recentFoods().length?`<div class="chips" aria-label="Examples"><span class="muted small" style="align-self:center">Try:</span>${EXAMPLES.slice(0,4).map(x=>`<button class="chip" data-action="example" data-text="${esc(x)}">${esc(x)}</button>`).join('')}</div>`:''}
   </section>`;
@@ -1811,7 +1835,7 @@ function greeting(){ const h=new Date().getHours(); return h<12?'Good morning':h
 function viewToday(){
   const day = getDay(S.date), t = dayTotals(day), T = dayTargets(day);
   const H = day.health||{}; const B = burnedTotal(day);
-  const byMeal = MEALS.map(m => ({m, items:(day.foods||[]).filter(f=>f.meal===m)})).filter(g=>g.items.length);
+  const byMeal = [...MEALS.map(m => ({m:titleCase(m), items:(day.foods||[]).filter(f=>f.meal===m)})), {m:'No meal tag', items:(day.foods||[]).filter(f=>!MEALS.includes(f.meal))}].filter(g=>g.items.length);
   const WT = waterTarget(day, T), goal = Number(prof().steps_goal)||10000;
   const P = (v,tg) => tg>0 ? v/tg*100 : 0;
   const hasTraining = (day.sports||[]).length || (day.exercises||[]).length;
@@ -2369,7 +2393,7 @@ function openWeFit(pick){
       <label class="field full">Menu<select id="wf_cat">${W.CATEGORIES.map(c=>`<option ${c===cat?'selected':''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="field full">Meal<select id="wf_meal">${W.MEALS.filter(x=>x.cat===cat).map(x=>`<option value="${esc(x.name)}" ${x===m?'selected':''}>${esc(x.name)} · ${n0(x.kcal)} kcal</option>`).join('')}</select></label>
       <label class="field">Amount<select id="wf_qty">${[[0.5,'Half'],[1,'1 meal'],[1.5,'1½ meals'],[2,'2 meals']].map(([v,l])=>`<option value="${v}" ${v===1?'selected':''}>${l}</option>`).join('')}</select></label>
-      <label class="field">Meal<select id="wf_when">${MEALS.map(x=>`<option ${x===guessMeal()?'selected':''}>${x}</option>`).join('')}</select></label>
+      <label class="field">Meal<select id="wf_when">${mealOpts(guessMeal())}</select></label>
       <div class="full" id="wf_prev"></div>
       <details class="full how"><summary>What’s in it</summary><ul>${m.parts.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></details>
       <div class="full muted small">From WeFit’s own nutrition data. Meat and grains are weighed as they go in.</div>
@@ -2422,7 +2446,7 @@ function openCB(){
       ${meal==='nachos'?'<div class="full muted small">Includes a portion of their plain nachos for the chips.</div>':''}
       <div class="full cbtotal"><b>${n0(r.kcal)} kcal</b> · protein ${n1(r.protein)} g · carbs ${n1(r.carbs)} g · fat ${n1(r.fat)} g${r.fiber?` · fibre ${n1(r.fiber)} g`:''}</div>
       <label class="field">How much<select id="cb_qty"><option value="0.5">Half</option><option value="1" selected>1</option><option value="1.5">1½</option><option value="2">2</option><option value="3">3</option></select></label>
-      <label class="field">Meal<select id="cb_when">${MEALS.map(m=>`<option ${m===guessMeal()?'selected':''}>${m}</option>`).join('')}</select></label>
+      <label class="field">Meal<select id="cb_when">${mealOpts(guessMeal())}</select></label>
       <div class="full muted small">From California Burrito’s nutrition calculator. Toppings and sauces added on that are also sold as a side count as 30% of that side.</div>
       <div class="full row"><span class="spacer"></span><button class="btn ghost" type="button" id="cb_cancel">Cancel</button><button class="btn" type="submit">Log it</button></div></form>`;
     $('#cb_cancel').onclick = () => d.close();
@@ -2471,7 +2495,7 @@ function openPortion(f, note){
     ${note ? `<div class="full small muted">${note}</div>` : ''}
     <label class="field">Amount<input id="pq" type="number" min="0" step="any" inputmode="decimal" value="${def==='g'?100:1}"></label>
     <label class="field">Unit<select id="pu">${opts}</select></label>
-    <label class="field">Meal<select id="pm">${MEALS.map(m=>`<option ${m===guessMeal()?'selected':''}>${m}</option>`).join('')}</select></label>
+    <label class="field">Meal<select id="pm">${mealOpts(guessMeal())}</select></label>
     <div class="full" id="pprev"></div>
     <div class="full muted small">Per 100 g: ${n0(f.per.kcal)} kcal · P ${n1(f.per.protein)} · C ${n1(f.per.carbs)} · F ${n1(f.per.fat)} g · from ${esc(SRC_LABEL[f.src]||'food table')}</div>
     <div class="full row"><span class="spacer"></span><button class="btn ghost" type="button" id="pcancel">Cancel</button><button class="btn" type="submit">Log it</button></div></form>`;
@@ -3192,7 +3216,7 @@ function openFoodEdit(id){
     <h2 class="full">Edit food</h2>
     <label class="field full">Name<input id="ef_name" value="${esc(f.name)}"></label>
     <label class="field">Grams<input id="ef_grams" type="number" min="0" step="1" value="${esc(Math.round(f.grams||0))}"></label>
-    <label class="field">Meal<select id="ef_meal">${MEALS.map(m=>`<option ${m===f.meal?'selected':''}>${m}</option>`).join('')}</select></label>
+    <label class="field">Meal<select id="ef_meal">${mealOpts(f.meal)}</select></label>
     <label class="check full"><input type="checkbox" id="ef_scale" checked> Scale every nutrient to the new grams</label>
     <label class="field">kcal<input id="ef_kcal" type="number" min="0" value="${esc(Math.round(f.kcal))}"></label>
     <label class="field">Protein (g)<input id="ef_p" type="number" min="0" step="0.1" value="${esc(n1(f.protein).replace(/,/g,''))}"></label>
@@ -3445,11 +3469,12 @@ document.addEventListener('click', ev => {
       render(); toast(`Deleted the ${fmtDate(r.report_date,{day:'numeric',month:'short'})} report`, () => { S.reports=[r,...S.reports]; if (S.db) S.db.doc('reports/'+r.id).set(r); render(); }); break; }
     case 'review': runReview(); break;
     case 'toggleHide': { const k=b.dataset.key; if (S.hidden.has(k)) S.hidden.delete(k); else S.hidden.add(k); try { localStorage.setItem('fl:hidden', JSON.stringify([...S.hidden])); } catch {} render(); break; }
+    case 'logMeal': { const m = b.dataset.m; S.logMeal = S.logMeal===m ? '' : m; document.querySelectorAll('[data-action=logMeal]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.m===S.logMeal))); break; }
     case 'relog': { let f=null; for (const [,d] of S.days) { f=(d.foods||[]).find(y=>y.id===b.dataset.id); if (f) break; } if(!f) break;
-      const copy={...structuredClone(f), id:uid(), time:nowTime(), meal:guessMeal()}; const date=S.date;
+      const copy={...structuredClone(f), id:uid(), time:nowTime(), meal:guessMeal()}; const date=S.date; clearLogMeal();
       writeDay(date, d=>d.foods.push(copy)); toast(`Logged ${f.name}`, () => writeDay(date, d => { d.foods=d.foods.filter(y=>y.id!==copy.id); })); break; }
     case 'suggFood': { const x = (S.fsugg||[])[+b.dataset.i]; if (!x) break; const f = x.f, date = S.date;
-      const copy = {...structuredClone(f), id:uid(), time:nowTime(), meal:guessMeal()};
+      const copy = {...structuredClone(f), id:uid(), time:nowTime(), meal:guessMeal()}; clearLogMeal();
       // Take the typed part out of the box; anything typed before it stays.
       const ta = $('#logText'); if (ta) { const parts = ta.value.split(/([,;\n])/); parts.pop(); ta.value = parts.join('').replace(/[,;\s]+$/,''); ta.value += ta.value ? ', ' : ''; }
       writeDay(date, d=>d.foods.push(copy)); toast(`Logged ${f.name}`, () => writeDay(date, d => { d.foods=d.foods.filter(y=>y.id!==copy.id); }));
@@ -3501,6 +3526,7 @@ document.addEventListener('click', ev => {
     case 'openDay': S.date=b.dataset.date; setView('today'); break;
   }
 });
+setInterval(() => { const el = document.getElementById('sinceMeal'); if (el) el.innerHTML = sinceMealHtml(); }, 60000);
 document.addEventListener('change', ev => {
   const el = ev.target;
   if (el.dataset && el.dataset.action==='dayComplete') { const on = el.checked; writeDay(S.date, d => { if (on) delete d.incomplete; else d.incomplete = true; }); }
