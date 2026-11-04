@@ -1586,9 +1586,13 @@ function pushRest(cancel){
 /* ---------- rest timer (after logging sets) ---------- */
 let restT = null;
 const restOn = () => prof().rest_timer !== false;
+// Rest between sets (default 1 min) and after the last set of an exercise (default 3 min).
+const restBetween = () => Number(prof().rest_default) || 60;
+const restAfterEx = () => Number(prof().rest_exercise) || 180;
+const fmtRest = v => v<60 ? v+' s' : `${Math.floor(v/60)}:${pad(v%60)} min`;
 function startRest(sec){
   if (!restOn()) return;
-  sec = sec || Number(prof().rest_default) || 180;
+  sec = sec || restBetween();
   S.rest = {end: Date.now() + sec*1000, total: sec}; tickRest(); pushRest();
 }
 // +15 / +30 / +60 add to the time that's left (and back to a full bar if it had run out).
@@ -1633,7 +1637,8 @@ document.addEventListener('focusout', () => setTimeout(() => { if (!isField(docu
 function workoutFold(){
   const p = prof();
   return `<label class="check"><input type="checkbox" data-action="restToggle" ${restOn()?'checked':''}> Show a rest timer after I log sets</label>
-    <label class="field">Default rest<select data-action="restDefault">${[45,60,90,120,150,180,240].map(v=>`<option value="${v}" ${Number(p.rest_default||180)===v?'selected':''}>${v<60?v+' s':`${Math.floor(v/60)}:${pad(v%60)} min`}</option>`).join('')}</select></label>
+    <label class="field">Rest between sets<select data-action="restDefault">${[30,45,60,90,120,150,180].map(v=>`<option value="${v}" ${restBetween()===v?'selected':''}>${fmtRest(v)}</option>`).join('')}</select></label>
+    <label class="field">Rest after each exercise<select data-action="restExercise">${[60,90,120,150,180,240,300].map(v=>`<option value="${v}" ${restAfterEx()===v?'selected':''}>${fmtRest(v)}</option>`).join('')}</select></label>
 `;
 }
 
@@ -2000,7 +2005,7 @@ function viewGym(){
     ${sel ? exerciseDetail(sel) : ''}
     <section class="panel folds" aria-label="Exercise library and settings">
       ${fold('g-lib', 'Exercise library', libCount() ? `${n0(libCount())} exercises with how-to` : 'loading…', libraryHtml())}
-      ${fold('g-settings', 'Workout settings', restOn()?`rest timer ${(r=>r<60?r+' s':`${Math.floor(r/60)}:${pad(r%60)} min`)(Number(prof().rest_default||180))}`:'rest timer off', workoutFold())}
+      ${fold('g-settings', 'Workout settings', restOn()?`rest ${fmtRest(restBetween())} between sets, ${fmtRest(restAfterEx())} after each exercise`:'rest timer off', workoutFold())}
     </section>
   </div>`;
 }
@@ -2247,7 +2252,9 @@ function wkAction(a, b){
         const already = done.some(x => (Number(x.weight)||0) >= wt && Number(x.reps) >= reps);
         if (!already && (hist.sessions[0].bodyweight ? reps > best && !wt : wt > top || (wt>0 && e1rm({weight:wt, reps}) > best + 0.05))) { s.pr = true; toast(`New personal record on ${e.name}! 🎉`); } }
       wkSave(); render();
-      if (b.dataset.last==='1' && e.rest!=='0') startRest(Number(e.rest)||null); } break;
+      // Last set of the exercise (all its sets ticked): the longer rest before the next exercise.
+      if (e.sets.every(x => x.done)) { if (e.rest!=='0') startRest(restAfterEx()); }
+      else if (b.dataset.last==='1' && e.rest!=='0') startRest(Number(e.rest)||null); } break;
   }
 }
 setInterval(() => { if (!S.workout) return; const el = document.getElementById('wkClock'); if (el) el.textContent = fmtDur(Date.now()-Date.parse(S.workout.started)); }, 1000);
@@ -3534,6 +3541,7 @@ document.addEventListener('change', ev => {
   if (el.dataset && el.dataset.action==='watchToggle') saveProfile({...prof(), watch_workouts:el.checked});
   if (el.dataset && el.dataset.action==='restToggle') { saveProfile({...prof(), rest_timer:el.checked}); if (!el.checked) stopRest(); }
   if (el.dataset && el.dataset.action==='restDefault') saveProfile({...prof(), rest_default:+el.value});
+  if (el.dataset && el.dataset.action==='restExercise') saveProfile({...prof(), rest_exercise:+el.value});
   if (el.dataset && el.dataset.action==='boardToggle') { boardLast = ''; saveProfile({...prof(), leaderboard:el.checked}); }
   if (el.dataset && el.dataset.action==='feedToggle') saveProfile({...prof(), share_workouts:el.checked});
   if (el.dataset && el.dataset.action==='shareFoodsToggle') { saveProfile({...prof(), share_foods:el.checked}); if (el.checked) backfillGroupFoods(); }
