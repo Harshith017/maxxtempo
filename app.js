@@ -2150,8 +2150,13 @@ function wkFinishNow(){
   if (!ex.length) { if (confirm('No sets are ticked off. Discard this workout?')) { S.workout = null; wkSave(); render(); } return; }
   const date = w.date || localDate(), time = new Date(w.started).toTimeString().slice(0,5);
   let minutes = Math.max(1, Math.round((Date.now()-Date.parse(w.started))/60000));
+  // Finish tapped well after the last set (forgot to tap it): the workout ended at the last
+  // ticked set, plus a minute for that set itself.
+  const lastDone = Math.max(0, ...ex.flatMap(e => e.sets.map(s => Number(s.done_at)||0)));
+  let endedEarly = false;
+  if (lastDone && Date.now() - lastDone > 15*60000) { minutes = Math.max(1, Math.round((lastDone - Date.parse(w.started))/60000) + 1); endedEarly = true; }
   // Left open for hours (forgot to tap Finish)? Ask how long the session really was.
-  if (minutes > LONG_WORKOUT_MIN) {
+  if (!endedEarly && minutes > LONG_WORKOUT_MIN) {
     const guess = Math.min(120, Math.max(20, ex.reduce((a,e)=>a+e.sets.length,0) * 3));
     const ans = prompt(`This workout has been open for ${Math.floor(minutes/60)} h ${pad(minutes%60)} min. How many minutes did you actually train?`, String(guess));
     if (ans === null) return;
@@ -2160,7 +2165,7 @@ function wkFinishNow(){
   const out = ex.map(e => { const x = {id:uid(), name:e.name, muscle_group:e.group, sets:e.sets.map(s=>({weight:Number(s.weight)||0, reps:Number(s.reps)||0, ...(s.type!=='normal'?{type:s.type}:{})})), time, source:'workout', workout_id:w.id, ...(e.superset?{superset:e.superset}:{})};
     x.kcal = exerciseKcal(x, date); return x; });
   const work = out.flatMap(e=>e.sets.filter(s=>s.type!=='warmup')), volume = work.reduce((a,s)=>a+s.weight*s.reps,0);
-  const summary = {id:w.id, name:w.name, started:w.started, minutes, exercises:out.length, sets:work.length, volume:Math.round(volume), routine_id:w.routine_id||null};
+  const summary = {id:w.id, name:w.name, started:w.started, minutes, exercises:out.length, sets:work.length, volume:Math.round(volume), routine_id:w.routine_id||null, ...(endedEarly?{ended_at:new Date(lastDone).toISOString()}:{})};
   writeDay(date, d => { d.exercises = [...(d.exercises||[]), ...out]; d.workouts = [...(d.workouts||[]), summary];
     const rec = Gym.recovery(d.exercises.map(e=>({...e, sets:(e.sets||[]).filter(s=>s.type!=='warmup')}))); if (rec) d.gym_recovery = {...rec, ready_at:new Date(Date.now()+rec.hours*3600e3).toISOString()}; });
   const routine = (S.routines||[]).find(r=>r.id===w.routine_id);
@@ -2171,7 +2176,7 @@ function wkFinishNow(){
 }
 function wkSummary(sm, out, date, routine, prs){
   const d = $('#dlg');
-  d.innerHTML = `<div class="form" style="gap:12px"><h2 class="full">Workout done 💪</h2>
+  d.innerHTML = `<div class="form" style="gap:12px"><h2 class="full">Workout done 💪</h2>${sm.ended_at?`<div class="full muted small">Timed to your last set at ${new Date(sm.ended_at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}, since Finish was tapped later.</div>`:''}
     <div class="full tiles"><div class="tile"><span class="l">Time</span><span class="v">${sm.minutes<60?sm.minutes+' min':Math.floor(sm.minutes/60)+'h '+pad(sm.minutes%60)}</span></div>
       <div class="tile"><span class="l">Volume</span><span class="v">${n0(sm.volume)}<span class="muted" style="font-size:16px"> kg</span></span></div>
       <div class="tile"><span class="l">Sets</span><span class="v">${sm.sets}</span></div><div class="tile"><span class="l">Exercises</span><span class="v">${sm.exercises}</span></div></div>
@@ -2243,7 +2248,7 @@ function wkAction(a, b){
       if (s.reps==='' && p) s.reps = String(p.reps);
       if (!(Number(s.reps)>0)) { toast('Type the reps first.'); break; }
       { const bad = setProblem(Number(s.weight)||0, Number(s.reps)); if (bad) { toast(bad); render(); break; } }
-      s.done = true;
+      s.done = true; s.done_at = Date.now();
       // Live PR: heavier than ever, or a better estimated 1RM (or more reps, bodyweight).
       const hist = buildSessions().get(exKey(e.name));
       if (hist && hist.sessions.length && s.type!=='warmup') { const wt = Number(s.weight)||0, reps = Number(s.reps)||0;
