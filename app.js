@@ -32,9 +32,9 @@ const actId = a => a==='athlete' ? 'very' : (ACTIVITY[a] ? a : 'light');
 const GOALS = {lose:{label:'Lose fat',ppk:2.0},maintain:{label:'Maintain / recomp',ppk:1.6},gain:{label:'Build muscle',ppk:1.8}};
 const DEFAULT_PROFILE = {name:'',sex:'male',age:25,birth:'',body_fat:null,maint_source:'auto',eat_back:true,height_cm:170,weight_kg:70,activity:'light',goal:'maintain',goal_rate:0.5,calorie_override:null,protein_override:null,carbs_override:null,fat_override:null,water_override_ml:null,steps_goal:10000,stack:[],watch_workouts:false};
 const MEALS = ['breakfast','brunch','lunch','snack','dinner'];
-const MUSCLES = ['chest','back','shoulders','biceps','triceps','quads','hamstrings','glutes','calves','core','full body','cardio'];
+const MUSCLES = ['chest','back','shoulders','biceps','triceps','forearms','quads','hamstrings','glutes','calves','core','full body','cardio'];
 // Older logs and routines say "legs": sort them into quads, hamstrings, glutes or calves.
-const fixGroup = (g, name) => g==='legs' && typeof Gym!=='undefined' ? Gym.legGroup(name) : g;
+const fixGroup = (g, name) => typeof Gym!=='undefined' ? Gym.fixGroup(g, name) : g;
 const EXAMPLES = [
   '200g chicken breast, 150g cooked rice, 1 tbsp ghee',
   '2 rotis, 1 katori dal, 100g paneer bhurji',
@@ -164,8 +164,8 @@ const emptyDay = date => ({date, foods:[], water:[], exercises:[], weight_kg:nul
 const getDay = date => S.days.get(date) || emptyDay(date);
 function mergeDays(){
   const m = new Map(S.daysRaw || []);
-  for (const [date, d] of m) if ((d.exercises||[]).some(e => e.muscle_group==='legs'))
-    m.set(date, {...d, exercises:d.exercises.map(e => e.muscle_group==='legs' ? {...e, muscle_group:fixGroup('legs', e.name)} : e)});
+  for (const [date, d] of m) if ((d.exercises||[]).some(e => fixGroup(e.muscle_group, e.name)!==e.muscle_group))
+    m.set(date, {...d, exercises:d.exercises.map(e => { const g = fixGroup(e.muscle_group, e.name); return g!==e.muscle_group ? {...e, muscle_group:g} : e; })});
   for (const [date, h] of S.healthSync || []) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
     const add = {}; for (const k of ['steps','active_kcal','resting_kcal']) if (Number(h[k]) >= 0 && h[k] != null) add[k] = Number(h[k]);
@@ -2328,7 +2328,7 @@ function openHowto(name){
 }
 /* Built-in databases in data/ (see DATA-LICENSES.md), fetched once after sign-in
    and kept by the service worker. The app works without them. */
-const DATA_VER = 2;
+const DATA_VER = 3;
 async function loadData(){
   const get = f => fetch(`data/${f}.json?v=${DATA_VER}`).then(r => r.ok ? r.json() : null).catch(() => null);
   const [free, wger, edb, indb] = await Promise.all([get('ex-free'), get('ex-wger'), get('ex-edb'), get('indb')]);
@@ -2787,7 +2787,7 @@ const BM_FRONT = [
   ['shoulders', [[-44,86],[-58,88],[-69,100],[-73,120],[-68,134],[-58,132],[-52,114],[-44,98]]],
   ['chest',     [[-3,94],[-22,86],[-42,92],[-52,106],[-50,124],[-34,138],[-14,138],[-3,133]]],
   ['biceps',    [[-55,134],[-67,132],[-74,148],[-75,168],[-68,182],[-59,178],[-55,158]]],
-  [null,        [[-60,186],[-76,186],[-84,214],[-88,246],[-80,252],[-70,228],[-62,206]]],          // forearm
+  ['forearms',  [[-60,186],[-76,186],[-84,214],[-88,246],[-80,252],[-70,228],[-62,206]]],          // forearm
   ['core',      [[-3,140],[-15,139],[-16,158],[-3,160]]],
   ['core',      [[-3,163],[-16,162],[-16,182],[-3,184]]],
   ['core',      [[-3,187],[-16,186],[-15,207],[-3,209]]],
@@ -2800,12 +2800,12 @@ const BM_FRONT = [
   ['calves',    [[-18,348],[-23,370],[-19,392],[-14,394],[-12,364]]],
 ];
 const BM_BACK = [
-  ['back',      [[0,62],[-12,70],[-40,85],[-30,96],[-14,110],[-8,140],[0,166]]],                     // traps
+  ['shoulders', [[0,62],[-12,70],[-40,85],[-30,96],[-14,110],[-8,140],[0,166]]],                     // traps (shrugs)
   ['shoulders', [[-42,88],[-58,88],[-69,100],[-73,120],[-68,134],[-58,130],[-50,108]]],             // rear delts
   ['back',      [[-14,112],[-32,100],[-50,106],[-52,134],[-44,170],[-30,198],[-14,190],[-9,150]]], // lats
   ['back',      [[-3,168],[-12,166],[-20,196],[-18,224],[-4,230]]],                                // lower back
   ['triceps',   [[-55,132],[-68,130],[-75,148],[-75,170],[-68,182],[-59,178],[-55,156]]],
-  [null,        [[-60,186],[-76,186],[-84,214],[-88,246],[-80,252],[-70,228],[-62,206]]],
+  ['forearms',  [[-60,186],[-76,186],[-84,214],[-88,246],[-80,252],[-70,228],[-62,206]]],
   ['glutes',    [[-2,230],[-24,222],[-45,234],[-47,262],[-31,277],[-6,272]]],
   ['hamstrings',[[-44,276],[-45,302],[-40,330],[-30,334],[-27,304],[-29,280]]],                    // hamstrings
   ['hamstrings',[[-25,280],[-24,316],[-16,332],[-8,302],[-9,284]]],

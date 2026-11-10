@@ -12,7 +12,9 @@ const out = []; const ok = (n, p, i = '') => out.push(`${p ? 'PASS' : 'FAIL'}  $
       health:{steps:6000, sleep_min:420, bed_time:'23:30', wake_time:'06:30'},
       exercises:[{id:'a', name:'Lying Leg Curl', muscle_group:'legs', sets:[{weight:40,reps:10},{weight:40,reps:10}]},
                  {id:'b', name:'Back Squat', muscle_group:'legs', sets:[{weight:100,reps:5}]},
-                 {id:'c', name:'Standing Calf Raise', muscle_group:'legs', sets:[{weight:60,reps:12}]}]}}]); })();`);
+                 {id:'c', name:'Standing Calf Raise', muscle_group:'legs', sets:[{weight:60,reps:12}]},
+                 {id:'d', name:'Forearm Curls (Underhand Grip)', muscle_group:'biceps', sets:[{weight:20,reps:15}]},
+                 {id:'e', name:'Shoulder Shrug', muscle_group:'back', sets:[{weight:70,reps:12}]}]}}]); })();`);
   await p.route(/functions\/v1\/claude/, r => r.fulfill({ status:200, contentType:'application/json', headers:{ 'access-control-allow-origin':'*' }, body:'{"ok":true,"ready":true,"usage":{"count":0,"cap":30}}' }));
   await p.route(/functions\/v1\/(?!claude)/, r => r.fulfill({ status:200, contentType:'application/json', headers:{ 'access-control-allow-origin':'*' }, body:'{"ok":true,"passkeys":[],"connected":false}' }));
   await p.route(/^https:\/\/(?!cdn\.jsdelivr)(?!.*functions\/v1)/, r => r.abort());
@@ -36,6 +38,7 @@ const out = []; const ok = (n, p, i = '') => out.push(`${p ? 'PASS' : 'FAIL'}  $
   ok('No "Legs" bar left', !/\bLegs\b/.test(await p.textContent('.musclebars').catch(()=>'')), await p.textContent('.musclebars').catch(()=>'no bars'));
   await p.click('.tab[data-view=profile]'); await p.waitForTimeout(800);
   ok('Profile has no sleep', !/sleep|slept/i.test(await txt()));
+  ok('Forearm curls show as forearms, shrugs as shoulders', /Forearm Curls \(Underhand Grip\).{0,20}forearms/i.test(gym) && /Shoulder Shrug.{0,20}shoulders/i.test(gym), (gym.match(/Forearm Curls.{0,40}/)||[''])[0]);
   ok('No page errors', !errs.length, errs.join(' | '));
   console.log(out.join('\n')); await b.close();
 })();

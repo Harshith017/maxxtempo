@@ -55,8 +55,8 @@ console.log('Exercises');
 // free-exercise-db
 {
   const src = await cached('free-exercise-db.json', () => getJson('https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json'));
-  const G = { abdominals: 'core', abductors: 'glutes', adductors: 'quads', biceps: 'biceps', calves: 'calves', chest: 'chest', forearms: 'biceps', glutes: 'glutes',
-    hamstrings: 'hamstrings', lats: 'back', 'lower back': 'back', 'middle back': 'back', neck: 'shoulders', quadriceps: 'quads', shoulders: 'shoulders', traps: 'back', triceps: 'triceps' };
+  const G = { abdominals: 'core', abductors: 'glutes', adductors: 'quads', biceps: 'biceps', calves: 'calves', chest: 'chest', forearms: 'forearms', glutes: 'glutes',
+    hamstrings: 'hamstrings', lats: 'back', 'lower back': 'back', 'middle back': 'back', neck: 'shoulders', quadriceps: 'quads', shoulders: 'shoulders', traps: 'shoulders', triceps: 'triceps' };
   const items = src.map(e => ({
     n: e.name, g: e.category === 'cardio' ? 'cardio' : G[(e.primaryMuscles || [])[0]] || 'full body',
     k: e.category === 'cardio' ? 'c' : (!e.equipment || e.equipment === 'body only') ? 'b' : 'w',
@@ -101,8 +101,8 @@ console.log('Exercises');
     } while (cursor);
     return out;
   });
-  const T = { biceps: 'biceps', forearms: 'biceps', triceps: 'triceps', glutes: 'glutes', abductors: 'glutes', abs: 'core', 'serratus anterior': 'core',
-    lats: 'back', traps: 'back', 'upper back': 'back', spine: 'back', pectorals: 'chest', delts: 'shoulders', 'levator scapulae': 'shoulders',
+  const T = { biceps: 'biceps', forearms: 'forearms', triceps: 'triceps', glutes: 'glutes', abductors: 'glutes', abs: 'core', 'serratus anterior': 'core',
+    lats: 'back', traps: 'shoulders', 'upper back': 'back', spine: 'back', pectorals: 'chest', delts: 'shoulders', 'levator scapulae': 'shoulders',
     quads: 'quads', hamstrings: 'hamstrings', calves: 'calves', adductors: 'quads', 'cardiovascular system': 'cardio' };
   const seen = new Set(); const items = [];
   for (const e of all) {
