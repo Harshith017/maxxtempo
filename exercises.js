@@ -43,7 +43,7 @@ const ROWS = [
 ['Machine Row','back','machine row|chest supported row|hammer strength row|seal row','w'],
 ['Straight-Arm Pulldown','back','straight arm pulldown|straight arm pull down|pullover|cable pullover','w'],
 ['Back Extension','back','back extension|back extensions|hyperextension|hyperextensions|hyper extension','b'],
-['Shrug','back','shrug|shrugs|barbell shrug|dumbbell shrug|dumbbell shrugs|barbell shrugs','w'],
+['Shrug','shoulders','shrug|shrugs|barbell shrug|dumbbell shrug|dumbbell shrugs|barbell shrugs|shoulder shrug|shoulder shrugs','w'],
 ['Face Pull','shoulders','face pull|face pulls','w'],
 // shoulders
 ['Overhead Press','shoulders','overhead press|ohp|military press|standing press|barbell overhead press|barbell shoulder press','w'],
@@ -60,6 +60,11 @@ const ROWS = [
 ['EZ-Bar Curl','biceps','ez bar curl|ez curl|ez bar curls|ez curls','w'],
 ['Dumbbell Curl','biceps','dumbbell curl|dumbbell curls|bicep curl|bicep curls|biceps curl|curl|curls|alternating curl|alternate curl','w'],
 ['Hammer Curl','biceps','hammer curl|hammer curls|hammers','w'],
+// forearms
+['Wrist Curl','forearms','wrist curl|wrist curls|forearm curl|forearm curls|underhand wrist curl|seated wrist curl|barbell wrist curl|dumbbell wrist curl','w'],
+['Reverse Wrist Curl','forearms','reverse wrist curl|reverse wrist curls|wrist extension|wrist extensions|overhand wrist curl','w'],
+['Reverse Curl','forearms','reverse curl|reverse curls|reverse barbell curl|reverse grip curl|reverse ez bar curl','w'],
+['Wrist Roller','forearms','wrist roller|forearm roller','w'],
 ['Preacher Curl','biceps','preacher curl|preacher curls|preacher','w'],
 ['Incline Dumbbell Curl','biceps','incline curl|incline curls|incline dumbbell curl','w'],
 ['Cable Curl','biceps','cable curl|cable curls|cable bicep curl','w'],
@@ -339,7 +344,17 @@ function legGroup(name, muscles) {
   for (const t of [first, n]) for (const [g, re] of LEG_RULES) if (t && re.test(t)) return g;
   return 'quads';
 }
-const fixGroup = (g, name, muscles) => g === 'legs' ? legGroup(name, muscles) : g;
+// Forearm work (wrist curls, reverse curls, anything named forearm) is its own group, and
+// shrugs / traps count as shoulders; older logs and library rows are sorted the same way.
+const FOREARM_RE = /\b(forearms?|wrist (curls?|extensions?|rollers?|flexion|extension)|reverse[- ](grip )?(barbell |dumbbell |cable |ez[- ]?bar )?curls?|grip (trainer|squeeze|strength)|plate pinch|finger curls?|brachioradialis)\b/;
+function fixGroup(g, name, muscles) {
+  const n = String(name || '').toLowerCase(), first = String((muscles || [])[0] || '').toLowerCase();
+  if (g === 'cardio') return g;
+  const compound = /\b(walks?|carry|carries|clean|snatch|deadlifts?|push[- ]?ups?|rows?|pull[- ]?ups?|press|hyperextensions?|extensions? back|back extensions?|raises?|face ?pulls?)\b/.test(n);
+  if (FOREARM_RE.test(n) || (!compound && /forearm|wrist|brachioradialis/.test(first))) return 'forearms';
+  if (/\bshrugs?\b/.test(n) || (!compound && /trap/.test(first) && g === 'back')) return 'shoulders';
+  return g === 'legs' ? legGroup(name, muscles) : g;
+}
 function recovery(exercises) {
   const by = new Map();
   for (const x of exercises) { if (x.muscle_group === 'cardio') continue; const mg = fixGroup(x.muscle_group, x.name);
