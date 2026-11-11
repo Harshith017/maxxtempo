@@ -352,6 +352,9 @@ function fixGroup(g, name, muscles) {
   if (g === 'cardio') return g;
   const compound = /\b(walks?|carry|carries|clean|snatch|deadlifts?|push[- ]?ups?|rows?|pull[- ]?ups?|press|hyperextensions?|extensions? back|back extensions?|raises?|face ?pulls?)\b/.test(n);
   if (FOREARM_RE.test(n) || (!compound && /forearm|wrist|brachioradialis/.test(first))) return 'forearms';
+  // Inner thigh (adductors) counts as quads, outer thigh (abductors) as glutes.
+  if (/\binner[- ]thigh|\badduct(or|ors|ion)\b/.test(n)) return 'quads';
+  if (/\bouter[- ]thigh|\babduct(or|ors|ion)\b/.test(n)) return 'glutes';
   if (/\bshrugs?\b/.test(n) || (!compound && /trap/.test(first) && g === 'back')) return 'shoulders';
   return g === 'legs' ? legGroup(name, muscles) : g;
 }
