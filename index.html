@@ -83,7 +83,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 
 /* tabs */
 .tabs{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;justify-content:center;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));background:var(--surface);border-top:1px solid var(--line)}
-.tabs .in{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;width:100%;max-width:520px}
+.tabs .in{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;width:100%;max-width:520px}
 .tab{border:0;background:none;padding:6px 2px;min-height:52px;border-radius:10px;cursor:pointer;font-family:var(--body);font-size:11.5px;font-weight:600;letter-spacing:.01em;color:var(--ink-3);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
 .tab svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .tab[aria-current="page"]{background:var(--tab-on);color:var(--tab-on-ink)}
@@ -106,8 +106,11 @@ main{padding-block:16px}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{border:1px dashed var(--line);background:transparent;border-radius:999px;padding:8px 12px;min-height:40px;font-size:12.5px;color:var(--ink-2);cursor:pointer}
 .chip:hover{border-color:var(--ink-3);color:var(--ink)}
-.mealpick{align-items:center;margin-top:8px}
-.mchip[aria-pressed="true"]{background:var(--grad);color:var(--btn-ink);border-color:transparent;border-style:solid}
+.mealpick{flex-wrap:nowrap;overflow-x:auto;align-items:center;gap:6px;margin-top:8px;padding-bottom:2px;scrollbar-width:none}
+.mealpick::-webkit-scrollbar{display:none}
+.mealpick .muted{flex:none}
+.mchip{flex:none;padding:6px 10px;min-height:36px;font-size:13px}
+.fastbar{margin-top:8px}
 .sincemeal{margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--surface-2);font-size:14px}
 .photo-pill{display:inline-flex;align-items:center;gap:8px;background:var(--surface-2);border-radius:999px;padding:4px 6px 4px 4px;font-size:13px}
 .photo-pill img{width:28px;height:28px;border-radius:50%;object-fit:cover}
@@ -524,6 +527,12 @@ h1,h2,h3{letter-spacing:-.01em}
 dialog{border-radius:12px} .menu{border-radius:10px} .toast{border-radius:8px}
 .check input[type=checkbox]{accent-color:var(--accent)}
 .gicon{border-radius:8px}
+.rt-today{display:grid;gap:10px;margin:4px 0 6px}
+.rt-today-c{display:grid;gap:4px;padding:14px;border:1px solid var(--ink-3);border-radius:8px;background:var(--surface)}
+.rt-today-c .l{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-text)}
+.rt-today-c b{font-size:19px}
+.wknote{margin-top:4px;font-size:13px;color:var(--accent-text);font-weight:600}
+abbr[title]{text-decoration:none}
 </style>
 </head>
 <body>
@@ -553,6 +562,7 @@ dialog{border-radius:12px} .menu{border-radius:10px} .toast{border-radius:8px}
   <button class="tab" data-view="today" aria-current="page"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>Today</span></button>
   <button class="tab" data-view="gym"><svg viewBox="0 0 24 24"><path d="M6.5 7v10M17.5 7v10M3.5 9.5v5M20.5 9.5v5M6.5 12h11"/></svg><span>Train</span></button>
   <button class="tab" data-view="trends"><svg viewBox="0 0 24 24"><path d="M4 19.5h16"/><path d="M5 15l4.5-4.5 3.5 3 6-6.5"/><path d="M15 7h4v4"/></svg><span>Trends</span></button>
+  <button class="tab" data-view="group"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><circle cx="16.5" cy="10" r="2.6"/><path d="M3.5 19c.8-3 3-4.6 5.5-4.6s4.7 1.6 5.5 4.6"/><path d="M14.5 15c2.6-.6 5 .6 6 3.6"/></svg><span>Group</span></button>
   <button class="tab" data-view="profile"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20c1.2-3.6 4.1-5.5 7.5-5.5s6.3 1.9 7.5 5.5"/></svg><span>Profile</span></button>
 </div></nav>
 <dialog id="dlg"></dialog>
