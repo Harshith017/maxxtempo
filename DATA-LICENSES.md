@@ -14,6 +14,7 @@ MaxxTempo's code is separate from the data below. Each file in `data/` comes fro
 | label reader (loaded from jsDelivr when first used) | [Tesseract.js](https://github.com/naptha/tesseract.js) and its English model | Apache-2.0 | Nothing extra |
 | shared barcode list (`shared_foods` table) | Label values typed or read by members of this app | Your group's own data | Nothing |
 | barcode reader (loaded from jsDelivr) | [ZXing for the browser](https://github.com/zxing-js/browser) | Apache-2.0 | Nothing extra |
+| typeface (`fonts/archivo-var.woff`) | [Archivo](https://github.com/Omnibus-Type/Archivo) by Omnibus-Type | SIL Open Font License 1.1 (`fonts/OFL.txt`) | Keep the licence file with the font |
 
 The app shows these credits in Profile → Settings → Data sources, and next to exercise instructions and scanned products.
 
