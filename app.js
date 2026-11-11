@@ -463,7 +463,7 @@ function sinceMealHtml(){
   const dur = h ? `${h}h ${pad(mm)}m` : mm < 1 ? 'just now' : `${mm} min`;
   const at = new Date(m.ts).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
   const day = localDate(new Date(m.ts))===localDate() ? '' : localDate(new Date(m.ts))===addDays(localDate(),-1) ? 'yesterday ' : fmtDate(localDate(new Date(m.ts)),{day:'numeric',month:'short'})+' ';
-  return `<span class="sm-ico" aria-hidden="true">⏱</span> <b>${h>=12?'Fasting':'Since last meal'}: ${dur}</b> <span class="muted small">· ${esc(m.name)}, ${day}${at}</span>`;
+  return `<b>${h>=12?'Fasting':'Since last meal'}: ${dur}</b> <span class="muted small">· ${esc(m.name)}, ${day}${at}</span>`;
 }
 const AI_ERR = {
   session_expired:'You’ve been signed out. Sign in again, then log this entry.',
@@ -2176,7 +2176,7 @@ function wkFinishNow(){
 }
 function wkSummary(sm, out, date, routine, prs){
   const d = $('#dlg');
-  d.innerHTML = `<div class="form" style="gap:12px"><h2 class="full">Workout done 💪</h2>${sm.ended_at?`<div class="full muted small">Timed to your last set at ${new Date(sm.ended_at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}, since Finish was tapped later.</div>`:''}
+  d.innerHTML = `<div class="form" style="gap:12px"><h2 class="full">Workout done</h2>${sm.ended_at?`<div class="full muted small">Timed to your last set at ${new Date(sm.ended_at).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}, since Finish was tapped later.</div>`:''}
     <div class="full tiles"><div class="tile"><span class="l">Time</span><span class="v">${sm.minutes<60?sm.minutes+' min':Math.floor(sm.minutes/60)+'h '+pad(sm.minutes%60)}</span></div>
       <div class="tile"><span class="l">Volume</span><span class="v">${n0(sm.volume)}<span class="muted" style="font-size:16px"> kg</span></span></div>
       <div class="tile"><span class="l">Sets</span><span class="v">${sm.sets}</span></div><div class="tile"><span class="l">Exercises</span><span class="v">${sm.exercises}</span></div></div>
@@ -2255,7 +2255,7 @@ function wkAction(a, b){
         const top = Math.max(...hist.sessions.map(x=>x.top)), best = Math.max(...hist.sessions.map(x=>x.best));
         const done = e.sets.filter(x=>x.done && x!==s && x.type!=='warmup');
         const already = done.some(x => (Number(x.weight)||0) >= wt && Number(x.reps) >= reps);
-        if (!already && (hist.sessions[0].bodyweight ? reps > best && !wt : wt > top || (wt>0 && e1rm({weight:wt, reps}) > best + 0.05))) { s.pr = true; toast(`New personal record on ${e.name}! 🎉`); } }
+        if (!already && (hist.sessions[0].bodyweight ? reps > best && !wt : wt > top || (wt>0 && e1rm({weight:wt, reps}) > best + 0.05))) { s.pr = true; toast(`New personal record on ${e.name}!`); } }
       wkSave(); render();
       // Last set of the exercise (all its sets ticked): the longer rest before the next exercise.
       if (e.sets.every(x => x.done)) { if (e.rest!=='0') startRest(restAfterEx()); }
@@ -4063,7 +4063,7 @@ function feedHtml(){
       <div class="post-title">${esc(w.title||'Workout')}</div>
       <div class="muted small">${esc(hrs(Number(w.minutes)||0))} · ${n0(w.sets||0)} ${w.sets===1?'set':'sets'} · ${n0(w.volume||0)} kg volume</div>
       <ul class="post-ex">${(w.exercises||[]).map(e=>`<li><span>${esc(e.sets)} × ${esc(e.name)}</span><span class="muted">${esc(e.best||'')}</span></li>`).join('')}${w.more?`<li class="muted">+ ${esc(w.more)} more</li>`:''}</ul>
-      ${(w.prs||[]).length?`<div class="post-pr">🏆 ${(w.prs||[]).map(esc).join(' · ')}</div>`:''}
+      ${(w.prs||[]).length?`<div class="post-pr"><span class="prbadge">PR</span> ${(w.prs||[]).map(esc).join(' · ')}</div>`:''}
       ${p.user_id===me?`<div class="post-foot"><span class="spacer"></span><button class="linkbtn" data-action="feedDel" data-id="${esc(p.id)}">Take off feed</button></div>`:''}</article>`; };
   return `<section class="panel feed" aria-label="Workout feed"><div class="panel-head"><h2>Workout feed</h2>${hideBtn('feed','workout feed')}</div>
     ${isHidden('feed') ? '' : `${posts.length ? shown.map(card).join('') : `<div class="empty">${S.feedLoaded?'No workouts in the last 30 days. Finish a workout in Train and it shows up here.':'Loading…'}</div>`}
