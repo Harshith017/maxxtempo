@@ -2176,9 +2176,15 @@ function openExPicker(onPick, title='Add exercise', onBack=null){
     const b = t && typeof Gym!=='undefined' ? Gym.search(t, 30).filter(x=>!a.some(y=>exKey(y.name)===exKey(x.name))) : [];
     return [...a, ...b].slice(0,40); };
   let rows = list('');
-  const draw = () => { $('#xp_res').innerHTML = rows.length ? rows.map((x,i)=>`<button class="exrow" data-i="${i}"><span>${esc(x.name)}${x.mine?' <span class="muted small">· yours</span>':''}</span><span class="tag">${esc(x.group||'')}</span></button>`).join('')
-      : `<div class="empty">Nothing found. <button class="linkbtn" id="xp_custom">Add “${esc($('#xp_q').value.trim())}” as your own exercise</button></div>`;
-    const c = $('#xp_custom'); if (c) c.onclick = () => { const n = titleCase($('#xp_q').value.trim()); if (n) { done(); d.close(); onPick({name:n, group:exGroup(n)}); } }; };
+  // Your own exercise: pick which muscle it works (the app's guess is preselected).
+  const custom = n => { $('#xp_res').innerHTML = `<div class="xp-own"><b>${esc(n)}</b><label class="field">Which muscle does it work?<select id="xp_mg">${MUSCLES.map(m=>`<option value="${m}" ${m===fixGroup(exGroup(n), n)?'selected':''}>${titleCase(m)}</option>`).join('')}</select></label>
+      <div class="row"><button class="btn ghost" type="button" id="xp_own_back">Back</button><button class="btn" type="button" id="xp_own_add">Add ${esc(n)}</button></div></div>`;
+    $('#xp_own_back').onclick = draw;
+    $('#xp_own_add').onclick = () => { const g = $('#xp_mg').value; done(); d.close(); onPick({name:n, group:g}); }; };
+  const draw = () => { const q = $('#xp_q').value.trim(), exact = rows.some(x => exKey(x.name)===exKey(q));
+    $('#xp_res').innerHTML = (rows.length ? rows.map((x,i)=>`<button class="exrow" data-i="${i}"><span>${esc(x.name)}${x.mine?' <span class="muted small">· yours</span>':''}</span><span class="tag">${esc(x.group||'')}</span></button>`).join('') : '<div class="empty">Nothing found.</div>')
+      + (q && !exact ? `<button class="btn ghost sm xp-addown" id="xp_custom">+ Add “${esc(titleCase(q))}” as your own exercise</button>` : '');
+    const c = $('#xp_custom'); if (c) c.onclick = () => { const n = titleCase($('#xp_q').value.trim()); if (n) custom(n); }; };
   d.innerHTML = `<div class="fsearch"><h2>${esc(title)}</h2><label class="field full">Search<input id="xp_q" type="search" placeholder="e.g. bench, lat pulldown, squat" autocomplete="off"></label>
     <div id="xp_res" class="exres"></div><div class="row"><span class="spacer"></span><button class="btn ghost" id="xp_close">Close</button></div></div>`;
   const done = () => { d.oncancel = null; };
@@ -2437,7 +2443,7 @@ function openHowto(name){
 }
 /* Built-in databases in data/ (see DATA-LICENSES.md), fetched once after sign-in
    and kept by the service worker. The app works without them. */
-const DATA_VER = 3;
+const DATA_VER = 4;
 // Indian recipes load after sign-in (food logging uses them); the three exercise libraries
 // (about 2 MB) only when Train is opened, an exercise is searched or a workout is typed,
 // or once the app has been idle for a while.

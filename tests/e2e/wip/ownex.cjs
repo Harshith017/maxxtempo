@@ -1,0 +1,33 @@
+/* Custom exercise: choose its muscle; inner/outer thigh exercises count as legs. */
+const { chromium } = require('playwright'); const fs = require('fs');
+const stub = fs.readFileSync(__dirname + '/stub3.js', 'utf8'); const seed = JSON.parse(fs.readFileSync(__dirname + '/seed.json', 'utf8'));
+const out = []; const ok = (n, p, i = '') => out.push(`${p ? 'PASS' : 'FAIL'}  ${n}${i ? '  — ' + i : ''}`);
+(async () => {
+  const b = await chromium.launch(); const p = await (await b.newContext({ viewport:{ width:390, height:844 } })).newPage();
+  const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.addInitScript(`window.__SEED__=${JSON.stringify(seed)};`);
+  await p.route(/functions\/v1\//, r => r.fulfill({ status:200, contentType:'application/json', headers:{ 'access-control-allow-origin':'*' }, body:'{"ok":true,"ready":true,"usage":{"count":0,"cap":30},"passkeys":[],"connected":false}' }));
+  await p.route(/^https:\/\/(?!cdn\.jsdelivr)(?!.*functions\/v1)/, r => r.abort());
+  await p.route(/cdn\.jsdelivr\.net\/npm\/@supabase/, r => r.fulfill({ contentType:'application/javascript', body:stub }));
+  await p.route(/localhost:8765\/(index\.html)?(\?.*)?$/, async r => { const res = await fetch('http://localhost:8765/index.html');
+    r.fulfill({ status:200, contentType:'text/html', body:(await res.text()).replace(/ integrity="sha384-[^"]*"/g, '') }); });
+  await p.goto('http://localhost:8765/', { waitUntil:'load' }); await p.waitForTimeout(2500);
+  await p.click('.tab[data-view=gym]'); await p.waitForTimeout(1500);
+  await p.click('[data-action=wkStart]'); await p.waitForTimeout(400);
+  await p.click('[data-action=wkAddEx]'); await p.waitForTimeout(400);
+  await p.fill('#xp_q', 'outer thigh abductors'); await p.waitForTimeout(800);
+  await p.click('#xp_custom'); await p.waitForTimeout(300);
+  ok('Muscle chooser shows, legs guess preselected', await p.inputValue('#xp_mg') === 'glutes', await p.inputValue('#xp_mg'));
+  await p.click('#xp_own_add'); await p.waitForTimeout(400);
+  ok('Added with glutes', /Outer Thigh Abductors\s*glutes/i.test((await p.textContent('.wklive')).replace(/\s+/g,' ')));
+  await p.click('[data-action=wkAddEx]'); await p.waitForTimeout(400);
+  await p.fill('#xp_q', 'my weird move'); await p.waitForTimeout(800);
+  await p.click('#xp_custom'); await p.waitForTimeout(300);
+  await p.selectOption('#xp_mg', 'forearms'); await p.click('#xp_own_add'); await p.waitForTimeout(400);
+  ok('Chosen muscle is used', /My Weird Move\s*forearms/i.test((await p.textContent('.wklive')).replace(/\s+/g,' ')));
+  await p.click('[data-action=wkAddEx]'); await p.waitForTimeout(400);
+  await p.fill('#xp_q', 'lat'); await p.waitForTimeout(800);
+  ok('Add-your-own also offered when there are matches', await p.$('#xp_custom') !== null && await p.$$eval('#xp_res .exrow', x => x.length) > 0);
+  ok('No page errors', !errs.length, errs.join(' | '));
+  console.log(out.join('\n')); await b.close();
+})();
