@@ -168,8 +168,10 @@ function mergeDays(){
     m.set(date, {...d, exercises:d.exercises.map(e => { const g = fixGroup(e.muscle_group, e.name); return g!==e.muscle_group ? {...e, muscle_group:g} : e; })});
   for (const [date, h] of S.healthSync || []) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-    const add = {}; for (const k of ['steps','active_kcal','resting_kcal']) if (Number(h[k]) >= 0 && h[k] != null) add[k] = Number(h[k]);
-    const d = m.get(date) || emptyDay(date);
+    // Steps and calories only go up during a day, so a sync from earlier in the day must
+    // not hide a bigger number typed in later: the higher of the two is kept.
+    const d = m.get(date) || emptyDay(date), mine = d.health || {};
+    const add = {}; for (const k of ['steps','active_kcal','resting_kcal']) if (Number(h[k]) >= 0 && h[k] != null) add[k] = Math.max(Number(h[k]), Number(mine[k])||0);
     m.set(date, {...d, date, health:{...(d.health||{}), ...add}, health_synced_at:h.synced_at || null});
   }
   S.days = m;
