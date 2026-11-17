@@ -7,7 +7,7 @@ const out = []; const ok = (n, p, i = '') => out.push(`${p ? 'PASS' : 'FAIL'}  $
   const errs = []; p.on('pageerror', e => errs.push(e.message));
   await p.addInitScript(`(() => { const d = new Date(Date.now()-3*3600e3-25*60e3), pad=n=>String(n).padStart(2,'0'), t = d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
     window.__SEED__ = ${JSON.stringify(seed)}.concat([{collection:'days', id:t, data:{date:t, water:[], exercises:[], weight_kg:null,
-      foods:[{id:'p1', name:'Poha', quantity:'1 plate', grams:200, meal:'breakfast', time:pad(d.getHours())+':'+pad(d.getMinutes()), kcal:350, protein:8, carbs:60, fat:9, fiber:4, sugar:5, micros:{}, confidence:'high', source:'food-db'},
+      foods:[{id:'cw', name:'Coconut water', quantity:'1 glass', grams:250, meal:'', time:pad(new Date(Date.now()-60*60e3).getHours())+':'+pad(new Date(Date.now()-60*60e3).getMinutes()), kcal:48, protein:0, carbs:11, fat:0, fiber:0, sugar:6, micros:{}, confidence:'high', source:'food-db'},{id:'p1', name:'Poha', quantity:'1 plate', grams:200, meal:'breakfast', time:pad(d.getHours())+':'+pad(d.getMinutes()), kcal:350, protein:8, carbs:60, fat:9, fiber:4, sugar:5, micros:{}, confidence:'high', source:'food-db'},
              {id:'p2', name:'Black coffee', quantity:'1 cup', grams:240, meal:'', time:pad(d.getHours())+':'+pad(d.getMinutes()), kcal:2, protein:0, carbs:0, fat:0, fiber:0, sugar:0, micros:{}, confidence:'high', source:'food-db'}]}}]);
     try{localStorage.setItem('fl:folds','["d-food"]')}catch{} })();`);
   await p.route(/functions\/v1\//, r => r.fulfill({ status:200, contentType:'application/json', headers:{ 'access-control-allow-origin':'*' }, body:'{"ok":true,"ready":true,"usage":{"count":0,"cap":30},"passkeys":[],"connected":false}' }));
@@ -17,7 +17,7 @@ const out = []; const ok = (n, p, i = '') => out.push(`${p ? 'PASS' : 'FAIL'}  $
     r.fulfill({ status:200, contentType:'text/html', body:(await res.text()).replace(/ integrity="sha384-[^"]*"/g, '') }); });
   await p.goto('http://localhost:8765/', { waitUntil:'load' }); await p.waitForTimeout(2500);
   const since = (await p.textContent('#sinceMeal').catch(()=>'')).replace(/\s+/g,' ');
-  ok('Since-last-meal line shows Poha ~3h 25m (coffee ignored)', /Since last meal: 3h 2[45]m/.test(since) && /Poha/.test(since), since);
+  ok('Since-last-meal line shows Poha ~3h 25m (coffee and coconut water ignored)', /Since last meal: 3h 2[45]m/.test(since) && /Poha/.test(since), since);
   ok('Five optional meal chips, none picked', await p.$$eval('[data-action=logMeal]', xs => xs.length===5 && xs.every(x=>x.getAttribute('aria-pressed')==='false') && xs.map(x=>x.textContent).join()==='Breakfast,Brunch,Lunch,Snack,Dinner'));
   // log with no meal picked
   await p.fill('#logText', '2 boiled eggs'); await p.click('[data-action=log]'); await p.waitForTimeout(1200);

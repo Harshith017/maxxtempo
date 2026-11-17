@@ -1,0 +1,30 @@
+/* Food log time: pick a time before logging, and edit it afterwards. */
+const { chromium } = require('playwright'); const fs = require('fs');
+const stub = fs.readFileSync(__dirname + '/stub3.js', 'utf8'); const seed = JSON.parse(fs.readFileSync(__dirname + '/seed.json', 'utf8'));
+const out = []; const ok = (n, p, i = '') => out.push(`${p ? 'PASS' : 'FAIL'}  ${n}${i ? '  — ' + i : ''}`);
+(async () => {
+  const b = await chromium.launch(); const p = await (await b.newContext({ viewport:{ width:390, height:844 } })).newPage();
+  const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.addInitScript(`window.__SEED__=${JSON.stringify(seed)}; try{localStorage.setItem('fl:folds','["d-food"]')}catch{}`);
+  await p.route(/functions\/v1\//, r => r.fulfill({ status:200, contentType:'application/json', headers:{ 'access-control-allow-origin':'*' }, body:'{"ok":true,"ready":true,"usage":{"count":0,"cap":30},"passkeys":[],"connected":false}' }));
+  await p.route(/^https:\/\/(?!cdn\.jsdelivr)(?!.*functions\/v1)/, r => r.abort());
+  await p.route(/cdn\.jsdelivr\.net\/npm\/@supabase/, r => r.fulfill({ contentType:'application/javascript', body:stub }));
+  await p.route(/localhost:8765\/(index\.html)?(\?.*)?$/, async r => { const res = await fetch('http://localhost:8765/index.html');
+    r.fulfill({ status:200, contentType:'text/html', body:(await res.text()).replace(/ integrity="sha384-[^"]*"/g, '') }); });
+  await p.goto('http://localhost:8765/', { waitUntil:'load' }); await p.waitForTimeout(2500);
+  const times = () => p.evaluate(() => { const d = JSON.parse(JSON.stringify([...S.days.values()])); return d.flatMap(x => (x.foods||[]).map(f => f.name+'@'+f.time)); }).catch(() => null);
+  ok('Time field shows, empty means now', await p.$('#logTime') !== null && await p.inputValue('#logTime') === '');
+  await p.fill('#logTime', '07:30'); await p.dispatchEvent('#logTime', 'change');
+  await p.fill('#logText', '2 boiled eggs'); await p.click('[data-action=log]'); await p.waitForTimeout(1200);
+  let food = (await p.textContent('[aria-label="What I ate"]')).replace(/\s+/g,' ');
+  ok('Food saved at the picked time', /Boiled egg 7:30 AM/.test(food), food.slice(0,200));
+  ok('Time field clears after logging', await p.inputValue('#logTime') === '');
+  await p.click('[aria-label="What I ate"] [data-action=editFood]'); await p.waitForTimeout(400);
+  ok('Edit dialog has the time', await p.inputValue('#ef_time') === '07:30');
+  await p.fill('#ef_time', '08:15'); await p.click('#editForm button[type=submit]:not([value=cancel])'); await p.waitForTimeout(600);
+  food = (await p.textContent('[aria-label="What I ate"]')).replace(/\s+/g,' ');
+  await p.click('[aria-label="What I ate"] [data-action=editFood]'); await p.waitForTimeout(400);
+  ok('Edited time is saved', await p.inputValue('#ef_time') === '08:15', await p.inputValue('#ef_time'));
+  ok('No page errors', !errs.length, errs.join(' | '));
+  console.log(out.join('\n')); await b.close();
+})();

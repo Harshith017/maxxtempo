@@ -458,14 +458,21 @@ function supplementsPanel(day){
 // No automatic meal: food is tagged only when the person picks a meal (chips under the log box)
 // or names it in the entry. Untagged food shows under "No meal tag".
 function guessMeal(){ return MEALS.includes(S.logMeal) ? S.logMeal : ''; }
-function clearLogMeal(){ S.logMeal = ''; document.querySelectorAll('[data-action=logMeal]').forEach(x => x.setAttribute('aria-pressed','false')); }
+// The time picked under the log box (empty = now); used for the next food logged.
+const fmtClock = hm => { const [h,m] = hm.split(':').map(Number); return `${(h%12)||12}:${pad(m)} ${h<12?'AM':'PM'}`; };
+const foodTime = () => /^\d{2}:\d{2}$/.test(S.logTime||'') ? S.logTime : nowTime();
+function clearLogMeal(){ S.logTime = ''; const lt = document.getElementById('logTime'); if (lt) lt.value = ''; S.logMeal = ''; document.querySelectorAll('[data-action=logMeal]').forEach(x => x.setAttribute('aria-pressed','false')); }
 const mealOpts = cur => `<option value="" ${!cur?'selected':''}>No meal tag</option>` + MEALS.map(m=>`<option value="${m}" ${m===cur?'selected':''}>${titleCase(m)}</option>`).join('');
 const namedMeal = text => /\bbrunch\b/i.test(text)?'brunch':/breakfast/i.test(text)?'breakfast':/lunch/i.test(text)?'lunch':/dinner/i.test(text)?'dinner':/snack/i.test(text)?'snack':'';
 // Time since the last thing eaten (10 kcal or more, so black coffee and water don't count).
+// Foods and drinks that don't end a fast for this person (Profile → Daily goals).
+const DEFAULT_FAST_OK = ['coconut water', 'black coffee', 'green tea', 'black tea', 'lemon water'];
+const fastOk = () => Array.isArray(prof().fast_ok) ? prof().fast_ok : DEFAULT_FAST_OK;
+const keepsFast = name => { const n = String(name||'').toLowerCase(); return fastOk().some(x => x && n.includes(String(x).toLowerCase())); };
 function lastMeal(){
   const now = Date.now(); let best = null;
   for (const [date, d] of S.days) { if (date > localDate()) continue;
-    for (const f of d.foods||[]) { if (!(f.kcal >= 10) || !/^\d{2}:\d{2}$/.test(f.time||'')) continue;
+    for (const f of d.foods||[]) { if (!(f.kcal >= 10) || keepsFast(f.name) || !/^\d{2}:\d{2}$/.test(f.time||'')) continue;
       const ts = new Date(`${date}T${f.time}:00`).getTime(); if (ts <= now && (!best || ts >= best.ts)) best = {ts, name:f.name}; } }
   return best;
 }
@@ -876,7 +883,7 @@ async function submitLog(){
   if (S.queue.length) runQueue();
 }
 async function saveEntry(date, r){
-  if ((r.foods||[]).length) clearLogMeal();
+  if ((r.foods||[]).length) { const t = foodTime(); for (const f of r.foods) f.time = t; clearLogMeal(); }
   await writeDay(date, d => {
     if ((r.sportsLocal||[]).length) d.sports = [...(d.sports||[]), ...r.sportsLocal];
     d.foods.push(...(r.foods||[])); d.exercises.push(...(r.exercises||[]));
@@ -1781,6 +1788,7 @@ function loggerHtml(kind){
     <textarea id="logText" placeholder="${esc(ph)}" ${S.busy?'disabled':''}></textarea>
     ${kind!=='gym' ? '<div id="fsugg" class="exres fsugg" aria-label="Foods you’ve logged before" hidden></div>' : ''}
     ${kind!=='gym' ? `<div class="chips mealpick" role="group" aria-label="Meal, optional"><span class="muted small">Meal</span>${MEALS.map(m=>`<button type="button" class="chip mchip" data-action="logMeal" data-m="${m}" aria-pressed="${S.logMeal===m}">${titleCase(m)}</button>`).join('')}</div>` : ''}
+    ${kind!=='gym' ? `<label class="logtime"><span class="muted small">Time</span><input type="time" id="logTime" value="${esc(S.logTime||'')}" aria-label="Time eaten, leave empty for now"><span class="muted small">${S.logTime?'':'now'}</span></label>` : ''}
     <div class="row">
       ${S.canPhoto && kind!=='gym' ? `<button class="btn ghost sm" data-action="pickPhoto" ${S.busy?'disabled':''}>Add photo</button>` : ''}
       ${kind!=='gym' ? `<button class="btn ghost sm" data-action="foodSearch" ${S.busy?'disabled':''}>Find food</button><button class="btn ghost sm" data-action="scan" ${S.busy?'disabled':''} aria-label="Scan a barcode">Scan</button>` : ''}
@@ -1956,8 +1964,8 @@ function viewToday(){
     <section class="panel folds" aria-label="What I ate">
       ${fold('d-food', 'What I ate today', (day.foods||[]).length?`${(day.foods||[]).length} item${(day.foods||[]).length===1?'':'s'} · ${n0(t.kcal)} kcal`:'nothing yet', `
       ${byMeal.length ? byMeal.map(g=>`<div class="meal"><div class="meal-h"><span>${g.m}</span><span class="num">${n0(g.items.reduce((s,f)=>s+f.kcal,0))} kcal</span></div>
-        ${g.items.map(f=>`<div class="item"><div><div class="nm">${esc(f.name)} ${f.confidence!=='high'?`<span class="tag est" title="Estimated portion">est.</span>`:''}${f.source==='photo'?' <span class="tag">photo</span>':''}${f.check?' <span class="tag est" title="Calories don’t match the protein, carbs and fat. Tap Edit to check.">check</span>':''}</div>
-          <div class="sub">${esc(f.quantity||(f.grams?n0(f.grams)+' g':''))} · P ${n0(f.protein)} · C ${n0(f.carbs)} · F ${n0(f.fat)}</div></div>
+        ${g.items.slice().sort((a,b)=>String(a.time||'').localeCompare(String(b.time||''))).map(f=>`<div class="item"><div><div class="nm">${esc(f.name)} ${f.confidence!=='high'?`<span class="tag est" title="Estimated portion">est.</span>`:''}${f.source==='photo'?' <span class="tag">photo</span>':''}${f.check?' <span class="tag est" title="Calories don’t match the protein, carbs and fat. Tap Edit to check.">check</span>':''}</div>
+          <div class="sub">${/^\d{2}:\d{2}$/.test(f.time||'')?`${fmtClock(f.time)} · `:''}${esc(f.quantity||(f.grams?n0(f.grams)+' g':''))} · P ${n0(f.protein)} · C ${n0(f.carbs)} · F ${n0(f.fat)}</div></div>
           <div class="kc">${n0(f.kcal)}</div>
           <div class="acts"><button data-action="editFood" data-id="${f.id}" aria-label="Edit ${esc(f.name)}">Edit</button><button data-action="delFood" data-id="${f.id}" aria-label="Delete ${esc(f.name)}">✕</button></div></div>`).join('')}</div>`).join('')
         : `<div class="empty">Nothing logged yet.</div>`}
@@ -2615,7 +2623,7 @@ function openFoodSearch(){
 }
 function foodFromPer(f, grams, label){
   const k = grams/100, per = f.per; const micros = {}; for (const m of MICROS) micros[m.key] = (per.micros[m.key]||0)*k;
-  return {id:uid(), name:f.name, quantity:label, grams:Math.round(grams), meal:guessMeal(), time:nowTime(), kcal:per.kcal*k, protein:per.protein*k, carbs:per.carbs*k, fat:per.fat*k,
+  return {id:uid(), name:f.name, quantity:label, grams:Math.round(grams), meal:guessMeal(), time:foodTime(), kcal:per.kcal*k, protein:per.protein*k, carbs:per.carbs*k, fat:per.fat*k,
     fiber:(per.fiber||0)*k, sugar:(per.sugar||0)*k, added_sugar:addedPer100(f)*k, alcohol:((f.alcohol ?? FOOD_ALCOHOL[f.name]) || 0)*k, micros, confidence:'high', source:'food-'+(f.src||'db')};
 }
 function openPortion(f, note){
@@ -3091,6 +3099,7 @@ function goalsForm(){
           <span class="hint">${p[key]?`Yours · suggested ${n0(sug)} <button type="button" class="linkbtn" data-action="resetGoal" data-key="${key}" style="padding:0 2px">Use suggested</button>`:`Suggested ${n0(sug)} ${unit}`}</span></label>`).join('')}
         <label class="field">Daily steps goal<input id="pf_steps" name="steps_goal" type="number" min="1000" max="50000" step="500" value="${esc(p.steps_goal??10000)}"></label>
         <label class="field">Fasting goal<select id="pf_fast">${[0,12,13,14,15,16,18,20].map(h=>`<option value="${h}" ${Number(p.fast_goal_h||0)===h?'selected':''}>${h?h+' hours':'Off'}</option>`).join('')}</select><span class="hint">Shown under “Since last meal” on Today.</span></label>
+        <label class="field">Doesn’t break my fast<input id="pf_fastok" maxlength="200" value="${esc(fastOk().join(', '))}" placeholder="e.g. coconut water, black coffee"><span class="hint">Comma-separated. These don’t reset “Since last meal”. Anything under 10 kcal never does.</span></label>
         ${T.fat < Math.round(0.6*(Number(p.weight_kg)||70)) ? `<div class="full banner">With these goals fat drops to ${n0(T.fat)} g, below the ${n0(0.6*(Number(p.weight_kg)||70))} g your body needs. Lower carbs or protein a little, or set fat yourself.</div>` : ''}
         ${(()=>{ const mk=T.protein*4+T.carbs*4+T.fat*9; return Math.abs(mk-T.kcal)>60 ? `<div class="full banner">Your protein, carbs and fat add up to ${n0(mk)} kcal, but your calorie goal is ${n0(T.kcal)} kcal. Adjust one so they match.</div>` : ''; })()}
         <div class="full row"><button class="btn" type="submit">Save goals</button></div>
@@ -3350,6 +3359,7 @@ function openFoodEdit(id){
     <label class="field full">Name<input id="ef_name" value="${esc(f.name)}"></label>
     <label class="field">Grams<input id="ef_grams" type="number" min="0" step="1" value="${esc(Math.round(f.grams||0))}"></label>
     <label class="field">Meal<select id="ef_meal">${mealOpts(f.meal)}</select></label>
+    <label class="field">Time<input id="ef_time" type="time" value="${esc(/^\d{2}:\d{2}$/.test(f.time||'')?f.time:'')}"></label>
     <label class="check full"><input type="checkbox" id="ef_scale" checked> Scale every nutrient to the new grams</label>
     <label class="field">kcal<input id="ef_kcal" type="number" min="0" value="${esc(Math.round(f.kcal))}"></label>
     <label class="field">Protein (g)<input id="ef_p" type="number" min="0" step="0.1" value="${esc(n1(f.protein).replace(/,/g,''))}"></label>
@@ -3362,7 +3372,7 @@ function openFoodEdit(id){
   $('#editForm').onsubmit = (ev) => { ev.preventDefault();
     const g = num($('#ef_grams').value,5000), scale = $('#ef_scale').checked;
     writeDay(S.date, day => { const x = day.foods.find(y=>y.id===id); if (!x) return;
-      x.name = $('#ef_name').value.trim()||x.name; x.meal = $('#ef_meal').value;
+      x.name = $('#ef_name').value.trim()||x.name; x.meal = $('#ef_meal').value; if (/^\d{2}:\d{2}$/.test($('#ef_time').value)) x.time = $('#ef_time').value;
       if (scale && x.grams>0 && g>0 && g!==x.grams) { const k=g/x.grams;
         x.added_sugar = addedSugar(x)*k; ['kcal','protein','carbs','fat','fiber','sugar'].forEach(key=>x[key]=(x[key]||0)*k);
         for (const m of MICROS) x.micros[m.key]=(x.micros[m.key]||0)*k;
@@ -3514,7 +3524,7 @@ function onProfileSubmit(ev){
   const p = {...prof(), name:($('#pf_name')?.value||'').trim().slice(0,40), sex:v('#pf_sex'), birth, age:birth?Calc.ageOn(birth, localDate()):prof().age, height_cm:num(v('#pf_height'),250)||170, weight_kg:num(v('#pf_weight'),300)||70,
     body_fat:bf, maint_source:v('#pf_maint'), eat_back:$('#pf_eatback').checked,
     activity:v('#pf_act'), goal:v('#pf_goal'), goal_rate:Number(v('#pf_rate'))||0.5,
-    fast_goal_h: $('#pf_fast') ? Number(v('#pf_fast'))||0 : Number(prof().fast_goal_h)||0, calorie_override:optNum(v('#pf_kcal'),6000), protein_override:optNum(v('#pf_prot'),400), carbs_override:optNum(v('#pf_carbs'),900), fat_override:optNum(v('#pf_fat'),300), fiber_override:optNum(v('#pf_fibre'),120), water_override_ml:optNum(v('#pf_water'),8000), steps_goal:optNum(v('#pf_steps'),50000)||10000};
+    fast_goal_h: $('#pf_fast') ? Number(v('#pf_fast'))||0 : Number(prof().fast_goal_h)||0, fast_ok: $('#pf_fastok') ? v('#pf_fastok').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean).slice(0,15) : fastOk(), calorie_override:optNum(v('#pf_kcal'),6000), protein_override:optNum(v('#pf_prot'),400), carbs_override:optNum(v('#pf_carbs'),900), fat_override:optNum(v('#pf_fat'),300), fiber_override:optNum(v('#pf_fibre'),120), water_override_ml:optNum(v('#pf_water'),8000), steps_goal:optNum(v('#pf_steps'),50000)||10000};
   saveProfile(p); toast('Profile saved. Targets updated.');
 }
 function setView(v){ if (S.user && S.profile && needsPw() && v!=='setup') { if (!S.setup) startSetup('password'); return; } S.view=v; S.status=''; S.statusErr=false; render(); window.scrollTo({top:0}); if (v==='group') { loadBoard(); loadFeed(); } if (v==='gym') loadExLibs(); }
@@ -3606,10 +3616,10 @@ document.addEventListener('click', ev => {
     case 'logMeal': { const m = b.dataset.m; S.logMeal = S.logMeal===m ? '' : m; document.querySelectorAll('[data-action=logMeal]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.m===S.logMeal))); break; }
     case 'groupFoodsOpen': openGroupFoods(); break;
     case 'relog': { let f=null; for (const [,d] of S.days) { f=(d.foods||[]).find(y=>y.id===b.dataset.id); if (f) break; } if(!f) break;
-      const copy={...structuredClone(f), id:uid(), time:nowTime(), meal:guessMeal()}; const date=S.date; clearLogMeal();
+      const copy={...structuredClone(f), id:uid(), time:foodTime(), meal:guessMeal()}; const date=S.date; clearLogMeal();
       writeDay(date, d=>d.foods.push(copy)); toast(`Logged ${f.name}`, () => writeDay(date, d => { d.foods=d.foods.filter(y=>y.id!==copy.id); })); break; }
     case 'suggFood': { const x = (S.fsugg||[])[+b.dataset.i]; if (!x) break; const f = x.f, date = S.date;
-      const copy = {...structuredClone(f), id:uid(), time:nowTime(), meal:guessMeal()}; clearLogMeal();
+      const copy = {...structuredClone(f), id:uid(), time:foodTime(), meal:guessMeal()}; clearLogMeal();
       // Take the typed part out of the box; anything typed before it stays.
       const ta = $('#logText'); if (ta) { const parts = ta.value.split(/([,;\n])/); parts.pop(); ta.value = parts.join('').replace(/[,;\s]+$/,''); ta.value += ta.value ? ', ' : ''; }
       writeDay(date, d=>d.foods.push(copy)); toast(`Logged ${f.name}`, () => writeDay(date, d => { d.foods=d.foods.filter(y=>y.id!==copy.id); }));
@@ -3663,6 +3673,7 @@ document.addEventListener('click', ev => {
 });
 setInterval(() => { const el = document.getElementById('sinceMeal'); if (el) el.innerHTML = sinceMealHtml(); }, 60000);
 document.addEventListener('change', ev => {
+  if (ev.target && ev.target.id==='logTime') { S.logTime = ev.target.value; const n = ev.target.nextElementSibling; if (n) n.textContent = S.logTime ? '' : 'now'; }
   const el = ev.target;
   if (el.dataset && el.dataset.action==='dayComplete') { const on = el.checked; writeDay(S.date, d => { if (on) delete d.incomplete; else d.incomplete = true; }); }
   if (el.dataset && el.dataset.action==='stackAuto') saveProfile({...prof(), stack_auto:el.checked});
