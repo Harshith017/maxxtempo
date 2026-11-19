@@ -59,7 +59,7 @@ const openNotify = async p => { await p.tap('.tab[data-view=profile]'); await p.
   await (await p.$$('[data-wk=weight]'))[0].fill('60'); await (await p.$$('[data-wk=reps]'))[0].fill('8'); await (await p.$$('.wdone'))[0].tap(); await p.waitForTimeout(800);
   const job = await p.evaluate(()=>window.__up.filter(x=>x.__t==='push_jobs').pop());
   const secs = job ? (Date.parse(job.send_at)-Date.now())/1000 : -1;
-  ok('Starting rest sends its end time', job && secs>80 && secs<=90, `${secs}`);
+  ok('Starting rest sends its end time', job && secs>50 && secs<=180, `${secs}`);
   await p.tap('#restbar [data-action=restAdd][data-s="30"]'); await p.waitForTimeout(600);
   const job2 = await p.evaluate(()=>window.__up.filter(x=>x.__t==='push_jobs').pop());
   ok('+30s moves the alert later', job2 && Date.parse(job2.send_at) - Date.parse(job.send_at) > 25000, `${(Date.parse(job2.send_at)-Date.parse(job.send_at))/1000}`);

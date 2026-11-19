@@ -2890,10 +2890,11 @@ function muscleSets(a, b){
       if (g==='full body') { for (const m of ['chest','back','shoulders','quads','hamstrings','core']) out[m] += n/6; } else out[g] = (out[g]||0) + n; } }
   return out;
 }
-// A simple front and back figure; each muscle is shaded by how many sets it got.
-/* Body map: an anatomical front and back view. Each muscle is shaded with a highlight and a
-   soft shadow so it reads as rounded, and glows stronger the more sets its group got. */
-// Smooth closed (or open) path through points (Catmull-Rom -> cubic Bezier).
+/* ---------- body map ----------
+   An anatomical front and back figure. Each muscle is drawn from its two borders, running
+   from where it starts to where it attaches, so its fibres can be drawn in the direction
+   the muscle actually pulls. Shade = sets that muscle group got in the period. */
+// Smooth path through points (Catmull-Rom -> cubic Bezier).
 function bmSmooth(pts, closed = true, t = 0.5) {
   const n = pts.length, P = i => closed ? pts[(i + n) % n] : pts[Math.max(0, Math.min(n - 1, i))];
   let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
@@ -2907,66 +2908,98 @@ function bmSmooth(pts, closed = true, t = 0.5) {
   return d + (closed ? 'Z' : '');
 }
 const bmMir = pts => pts.map(([x, y]) => [-x, y]);
-// Body bmOutline, left half (x from the centre line), top of neck to crotch, arms out a little.
-const BM_OUT = [[-10,58],[-11,72],[-26,80],[-48,86],[-62,94],[-70,110],[-72,132],[-75,158],[-79,182],[-83,208],[-87,236],[-89,254],[-94,266],[-93,284],[-85,290],[-80,276],[-78,258],[-72,234],[-66,208],[-61,186],[-58,162],[-55,138],[-50,128],
-  [-48,146],[-43,172],[-39,198],[-44,224],[-47,250],[-46,286],[-41,322],[-40,340],[-42,362],[-36,388],[-29,400],[-33,412],[-14,416],[-13,401],[-14,376],[-17,346],[-14,318],[-10,286],[-4,262],[0,258]];
-const bmOutline = () => bmSmooth([...BM_OUT, ...bmMir(BM_OUT).reverse().slice(1)]);
-// Muscles: [group, side-left points]; drawn for both sides.
+// Points evenly spaced along a polyline (n of them), for drawing fibres between two borders.
+function bmResample(pts, n) {
+  const seg = [], acc = [0];
+  for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i-1][0], pts[i][1] - pts[i-1][1]); seg.push(d); acc.push(acc[i-1] + d); }
+  const L = acc[acc.length - 1] || 1, out = [];
+  for (let k = 0; k < n; k++) { const s = L * k / (n - 1); let i = 1; while (i < acc.length - 1 && acc[i] < s) i++;
+    const f = seg[i-1] ? (s - acc[i-1]) / seg[i-1] : 0; out.push([pts[i-1][0] + (pts[i][0] - pts[i-1][0]) * f, pts[i-1][1] + (pts[i][1] - pts[i-1][1]) * f]); }
+  return out;
+}
+// Left half of the body outline (x < 0), neck to crotch, arms hanging a little out.
+const BM_BODY = [[-12,60],[-13,73],[-30,80],[-50,84],[-63,89],[-71,99],[-75,115],[-76,132],[-78,152],[-80,172],[-82,190],[-85,200],[-89,216],[-92,236],[-92,252],[-93,264],[-96,274],[-98,288],[-96,302],[-90,309],[-85,303],[-84,290],[-81,276],[-79,266],[-74,244],[-69,222],[-65,205],[-63,192],[-61,172],[-58,152],[-55,138],[-52,150],[-48,172],[-42,196],[-40,212],[-44,230],[-48,248],[-50,268],[-48,294],[-43,318],[-37,336],[-36,348],[-38,364],[-38,382],[-33,404],[-25,424],[-21,434],[-24,443],[-28,451],[-22,457],[-9,457],[-8,447],[-10,434],[-11,412],[-13,386],[-13,364],[-12,344],[-10,326],[-9,302],[-6,276],[-3,259],[0,254]];
+const BM_HEAD = [[0,4],[12,7],[19,18],[21,32],[18,46],[11,57],[0,61],[-11,57],[-18,46],[-21,32],[-19,18],[-12,7]];
+// Muscles: [group, border a, border b], both borders running from origin to insertion (left side; mirrored).
 const BM_FRONT = [
-  ['shoulders', [[-44,86],[-58,88],[-69,100],[-73,120],[-68,134],[-58,132],[-52,114],[-44,98]]],
-  ['chest',     [[-3,94],[-22,86],[-42,92],[-52,106],[-50,124],[-34,138],[-14,138],[-3,133]]],
-  ['biceps',    [[-55,134],[-67,132],[-74,148],[-75,168],[-68,182],[-59,178],[-55,158]]],
-  ['forearms',  [[-60,186],[-76,186],[-84,214],[-88,246],[-80,252],[-70,228],[-62,206]]],          // forearm
-  ['core',      [[-3,140],[-15,139],[-16,158],[-3,160]]],
-  ['core',      [[-3,163],[-16,162],[-16,182],[-3,184]]],
-  ['core',      [[-3,187],[-16,186],[-15,207],[-3,209]]],
-  ['core',      [[-3,212],[-15,211],[-12,238],[-3,250]]],
-  ['core',      [[-19,142],[-36,140],[-44,150],[-41,176],[-38,200],[-42,222],[-22,238],[-19,206]]],   // obliques
-  ['quads',     [[-44,244],[-47,280],[-43,316],[-34,332],[-27,304],[-29,262]]],                    // outer quad
-  ['quads',     [[-28,258],[-25,296],[-22,322],[-14,334],[-11,308],[-15,280]]],                    // inner quad
-  ['quads',     [[-5,262],[-24,256],[-17,282],[-11,300],[-6,286]]],                                 // adductor
-  ['calves',    [[-39,346],[-42,368],[-36,394],[-28,395],[-25,368],[-28,348]]],                    // shin / calf
-  ['calves',    [[-18,348],[-23,370],[-19,392],[-14,394],[-12,364]]],
+  [null,        [[-6,60],[-10,70],[-12,82],[-6,90]], [[-13,56],[-17,66],[-19,78],[-14,88]]],                  // sternocleidomastoid
+  ['shoulders', [[-13,66],[-28,76],[-47,83]], [[-14,75],[-30,82],[-47,86]]],                                   // upper trapezius
+  ['shoulders', [[-46,85],[-62,89],[-73,104],[-76,124],[-73,148]], [[-46,89],[-52,101],[-58,122],[-65,142],[-73,148]]],   // deltoid
+  ['chest',     [[-3,88],[-22,88],[-40,92],[-54,102],[-59,117]], [[-3,139],[-20,146],[-38,143],[-51,131],[-59,119]]],    // pectoralis major
+  ['core',      [[-47,139],[-52,146]], [[-44,148],[-50,153]]],                                                // serratus slips
+  ['core',      [[-46,152],[-51,158]], [[-43,160],[-49,165]]],
+  ['core',      [[-44,165],[-49,171]], [[-41,173],[-46,178]]],
+  ['core',      [[-2,144],[-2,165]], [[-17,143],[-18,165]]],                                                  // rectus abdominis
+  ['core',      [[-2,169],[-2,189]], [[-18,169],[-18,189]]],
+  ['core',      [[-2,193],[-2,213]], [[-18,193],[-17,213]]],
+  ['core',      [[-2,217],[-2,251]], [[-16,217],[-10,247]]],
+  ['core',      [[-21,148],[-23,176],[-22,204],[-14,239]], [[-41,154],[-43,180],[-39,207],[-28,234]]],          // external oblique
+  ['biceps',    [[-58,128],[-61,150],[-64,172],[-68,192]], [[-71,136],[-78,156],[-80,176],[-74,192]]],
+  ['forearms',  [[-66,195],[-71,214],[-78,240],[-84,262]], [[-74,196],[-81,218],[-85,240],[-87,262]]],          // flexors
+  ['forearms',  [[-75,192],[-84,206],[-90,226],[-91,250],[-90,262]], [[-82,194],[-88,210],[-92,232],[-93,252],[-91,262]]],   // brachioradialis
+  ['quads',     [[-45,240],[-34,266],[-22,298],[-13,330]], [[-41,236],[-28,264],[-17,296],[-9,325]]],          // sartorius
+  ['quads',     [[-47,246],[-50,280],[-46,310],[-37,338]], [[-36,256],[-37,286],[-33,314],[-29,336]]],          // vastus lateralis
+  ['quads',     [[-35,250],[-34,282],[-29,312],[-25,334]], [[-22,262],[-21,290],[-21,314],[-20,334]]],          // rectus femoris
+  ['quads',     [[-19,294],[-22,318],[-23,338]], [[-12,298],[-10,320],[-16,343]]],                            // vastus medialis
+  ['quads',     [[-4,258],[-9,280],[-11,298]], [[-17,254],[-18,272],[-15,296]]],                               // adductors
+  ['calves',    [[-31,350],[-34,374],[-28,402],[-22,426]], [[-24,350],[-24,374],[-21,402],[-19,426]]],          // tibialis anterior
+  ['calves',    [[-36,352],[-39,378],[-34,404]], [[-32,352],[-32,378],[-29,404]]],                            // peroneus
+  ['calves',    [[-18,350],[-20,372],[-17,396]], [[-12,348],[-12,370],[-13,396]]],                            // gastrocnemius (inner)
 ];
 const BM_BACK = [
-  ['shoulders', [[0,62],[-12,70],[-40,85],[-30,96],[-14,110],[-8,140],[0,166]]],                     // traps (shrugs)
-  ['shoulders', [[-42,88],[-58,88],[-69,100],[-73,120],[-68,134],[-58,130],[-50,108]]],             // rear delts
-  ['back',      [[-14,112],[-32,100],[-50,106],[-52,134],[-44,170],[-30,198],[-14,190],[-9,150]]], // lats
-  ['back',      [[-3,168],[-12,166],[-20,196],[-18,224],[-4,230]]],                                // lower back
-  ['triceps',   [[-55,132],[-68,130],[-75,148],[-75,170],[-68,182],[-59,178],[-55,156]]],
-  ['forearms',  [[-60,186],[-76,186],[-84,214],[-88,246],[-80,252],[-70,228],[-62,206]]],
-  ['glutes',    [[-2,230],[-24,222],[-45,234],[-47,262],[-31,277],[-6,272]]],
-  ['hamstrings',[[-44,276],[-45,302],[-40,330],[-30,334],[-27,304],[-29,280]]],                    // hamstrings
-  ['hamstrings',[[-25,280],[-24,316],[-16,332],[-8,302],[-9,284]]],
-  ['calves',    [[-38,344],[-42,366],[-33,384],[-27,364],[-28,344]]],                              // calves
-  ['calves',    [[-25,344],[-25,374],[-18,386],[-13,362],[-15,344]]],
+  ['shoulders', [[0,60],[-12,68],[-30,79],[-50,88]], [[0,180],[-10,150],[-24,118],[-40,96],[-50,90]]],        // trapezius
+  ['shoulders', [[-50,88],[-64,90],[-74,106],[-76,126],[-73,148]], [[-50,92],[-56,104],[-61,124],[-67,141],[-73,148]]],  // rear deltoid
+  ['back',      [[-16,102],[-32,98],[-48,104],[-58,116]], [[-22,134],[-38,134],[-51,126],[-58,119]]],         // infraspinatus / teres
+  ['back',      [[-4,146],[-24,138],[-44,130],[-56,131]], [[-4,226],[-34,210],[-48,178],[-55,142],[-56,134]]],   // latissimus dorsi
+  ['back',      [[-2,148],[-2,192],[-3,234]], [[-13,148],[-16,192],[-12,234]]],                               // erector spinae
+  ['triceps',   [[-72,124],[-79,146],[-81,168],[-76,188]], [[-66,128],[-70,148],[-71,168],[-73,188]]],          // lateral head
+  ['triceps',   [[-56,132],[-60,154],[-64,174],[-69,192]], [[-65,130],[-69,150],[-70,172],[-72,192]]],          // long head
+  ['forearms',  [[-66,195],[-71,214],[-78,240],[-84,262]], [[-74,196],[-81,218],[-85,240],[-87,262]]],          // extensors
+  ['forearms',  [[-75,192],[-84,206],[-90,226],[-91,250],[-90,262]], [[-82,194],[-88,210],[-92,232],[-93,252],[-91,262]]],
+  ['glutes',    [[-16,222],[-32,214],[-45,228]], [[-17,234],[-33,231],[-47,244]]],                              // gluteus medius
+  ['glutes',    [[-3,232],[-20,230],[-41,240],[-49,264]], [[-3,278],[-18,290],[-37,286],[-49,268]]],            // gluteus maximus
+  ['hamstrings',[[-39,288],[-44,306],[-40,326],[-33,344]], [[-26,292],[-27,310],[-27,328],[-27,344]]],          // biceps femoris
+  ['hamstrings',[[-24,292],[-23,312],[-21,330],[-17,346]], [[-8,286],[-9,306],[-11,326],[-13,344]]],            // semitendinosus
+  ['calves',    [[-35,350],[-39,366],[-35,388],[-24,404]], [[-23,348],[-23,368],[-22,388],[-21,404]]],          // gastrocnemius (outer)
+  ['calves',    [[-21,348],[-20,368],[-18,392],[-17,406]], [[-11,350],[-11,368],[-13,390],[-17,406]]],          // gastrocnemius (inner)
+  ['calves',    [[-34,394],[-29,412],[-22,426]], [[-14,398],[-13,412],[-18,426]]],                              // soleus
 ];
-function bmFigure(muscles, fill, label, sets, U) {
-  const title = g => g ? `<title>${titleCase(g)}: ${n0(sets[g]||0)} set${Math.round(sets[g]||0)===1?'':'s'}</title>` : '';
-  const parts = muscles.flatMap(([g, pts]) => [[g, pts], [g, bmMir(pts)]]).map(([g, pts]) => {
-    const d = bmSmooth(pts);
-    return `<g class="mus">${title(g)}<path d="${d}" style="fill:${fill(g)};stroke:var(--bm-line);stroke-width:.7"/><path d="${d}" fill="${U('Bulge')}"/></g>`;
-  }).join('');
-  return `<g filter="${U('Drop')}"><path d="${bmSmooth([[0,10],[15,15],[20,32],[17,48],[9,60],[0,63],[-9,60],[-17,48],[-20,32],[-15,15]])}" fill="${U('Skin')}" style="stroke:var(--bm-line);stroke-width:.7"/>
-      <path d="${bmOutline()}" fill="${U('Skin')}" style="stroke:var(--bm-line);stroke-width:.7"/><path d="${bmOutline()}" fill="${U('Edge')}"/></g>
-    ${parts}
-    <text x="0" y="440" text-anchor="middle" font-size="15" fill="var(--ink-3)">${label}</text>`;
+// Sets -> colour: amber for a little, coral, then deep red for the most.
+function bmHeat(v, max) {
+  if (!v) return 'var(--bm-muscle)';
+  const t = Math.min(1, v / max);
+  return t < .5 ? `color-mix(in oklab, var(--bm-heat-2) ${Math.round(t * 200)}%, var(--bm-heat-1))`
+                : `color-mix(in oklab, var(--bm-heat-3) ${Math.round((t - .5) * 200)}%, var(--bm-heat-2))`;
+}
+function bmMuscle(g, a, b, fill, U, title) {
+  const outline = bmSmooth([...a, ...b.slice().reverse()]);
+  const A = bmResample(a, 9), B = bmResample(b, 9), w = Math.hypot(A[4][0] - B[4][0], A[4][1] - B[4][1]);
+  const n = Math.max(2, Math.min(9, Math.round(w / 3.2))), fib = [];
+  for (let k = 1; k < n; k++) { const f = k / n; fib.push(bmSmooth(A.map((p, i) => [p[0] + (B[i][0] - p[0]) * f, p[1] + (B[i][1] - p[1]) * f]), false)); }
+  return `<g class="mus">${title}<path d="${outline}" style="fill:${fill}"/><path d="${outline}" fill="${U('Shade')}"/>` +
+    `<path d="${fib.join(' ')}" class="fib"/><path d="${outline}" class="mline"/></g>`;
+}
+function bmFigure(muscles, fill, label, sets, U, back) {
+  const title = g => !g ? '' : `<title>${titleCase(g)}: ${n0(sets[g]||0)} set${Math.round(sets[g]||0)===1?'':'s'}</title>`;
+  const body = bmSmooth([...BM_BODY, ...bmMir(BM_BODY).reverse().slice(1)]);
+  const parts = muscles.flatMap(([g, a, b]) => [bmMuscle(g, a, b, fill(g), U, title(g)), bmMuscle(g, bmMir(a), bmMir(b), fill(g), U, title(g))]).join('');
+  const knees = back ? '' : [-1, 1].map(s => `<ellipse cx="${s*24}" cy="${344}" rx="7" ry="8" class="knee"/>`).join('');
+  const spine = back ? `<path d="M0 64 L0 236" class="crease"/>` : `<path d="M0 90 L0 252" class="crease"/>`;
+  return `<path d="${bmSmooth(BM_HEAD)}" fill="${U('Skin')}" class="skin"/><path d="${body}" fill="${U('Skin')}" class="skin"/>
+    ${spine}${parts}${knees}<text x="0" y="478" text-anchor="middle" class="bmlbl">${label}</text>`;
 }
 let bmN = 0;
 function bodyMap(sets) {
   const id = 'bm' + (++bmN), U = n => `url(#${id}${n})`;
   const max = Math.max(1, ...Object.values(sets));
-  const fill = g => { const v = g ? sets[g] || 0 : 0;
-    return v ? `color-mix(in srgb, var(--bm-hot) ${Math.round(35 + 65 * v / max)}%, var(--bm-muscle))` : 'var(--bm-muscle)'; };
-  return `<svg class="bodymap" viewBox="-110 0 440 452" role="img" aria-label="Sets per muscle, front and back">
+  const fill = g => g ? bmHeat(sets[g] || 0, max) : 'var(--bm-muscle)';
+  return `<svg class="bodymap" viewBox="-112 -4 444 492" role="img" aria-label="Sets per muscle, front and back">
     <defs>
-      <radialGradient id="${id}Skin" cx="0.42" cy="0.3" r="0.8"><stop offset="0" style="stop-color:var(--bm-skin-hi)"/><stop offset="1" style="stop-color:var(--bm-skin)"/></radialGradient>
-      <linearGradient id="${id}Edge" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#000" stop-opacity=".10"/><stop offset=".22" stop-color="#000" stop-opacity="0"/><stop offset=".78" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".14"/></linearGradient>
-      <radialGradient id="${id}Bulge" cx="0.38" cy="0.3" r="0.85"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset=".35" stop-color="#fff" stop-opacity=".08"/><stop offset=".75" stop-color="#000" stop-opacity=".06"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></radialGradient>
-      <filter id="${id}Drop" x="-30%" y="-10%" width="160%" height="130%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000" flood-opacity="0.18"/></filter>
+      <linearGradient id="${id}Skin" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--bm-skin-hi)"/><stop offset="1" style="stop-color:var(--bm-skin)"/></linearGradient>
+      <linearGradient id="${id}Shade" x1="0" y1="0" x2=".9" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".28"/></linearGradient>
     </defs>
-    <g>${bmFigure(BM_FRONT, fill, 'Front', sets, U)}</g>
-    <g transform="translate(220,0)">${bmFigure(BM_BACK, fill, 'Back', sets, U)}</g>
+    <g>${bmFigure(BM_FRONT, fill, 'Front', sets, U, false)}</g>
+    <g transform="translate(220,0)">${bmFigure(BM_BACK, fill, 'Back', sets, U, true)}</g>
   </svg>`;
 }
 
@@ -3009,7 +3042,7 @@ function trainingTrends(){
     ${isHidden('tr') ? '' : `<div class="tiles"><div class="tile"><span class="l">Week streak</span><span class="v">${st.weeks}<span class="muted" style="font-size:16px"> ${st.weeks===1?'week':'weeks'}</span></span><span class="muted small">best ${st.best}</span></div>
       <div class="tile"><span class="l">This week</span><span class="v">${st.thisWeek}<span class="muted" style="font-size:16px"> ${st.thisWeek===1?'day':'days'}</span></span><span class="muted small">trained</span></div></div>
     <div class="panel-head"><h3>Sets per muscle</h3><div class="seg" role="group" aria-label="Muscle period">${[['week','This week'],['month','This month'],['30','30 days']].map(([k,l])=>`<button data-action="musclePeriod" data-p="${k}" aria-pressed="${per===k}">${l}</button>`).join('')}</div></div>
-    ${list.length ? `<div class="musclewrap">${bodyMap(sets)}<div class="musclebars">${list.map(([m,v])=>`<div class="mbar"><span>${esc(titleCase(m))}</span><span class="mtrack"><i style="width:${v/max*100}%"></i></span><b>${n0(v)}</b></div>`).join('')}</div></div>
+    ${list.length ? `<div class="musclewrap"><div class="bmwrap">${bodyMap(sets)}<div class="bmkey" aria-hidden="true"><span>Fewer</span><i></i><span>More sets</span></div></div><div class="musclebars">${list.map(([m,v])=>`<div class="mbar"><span>${esc(titleCase(m))}</span><span class="mtrack"><i style="width:${v/max*100}%;background:${bmHeat(v,max)}"></i></span><b>${n0(v)}</b></div>`).join('')}</div></div>
       <div class="muted small">Working sets, warm-ups left out.</div>` : '<div class="muted small">No gym sets in this period yet.</div>'}
     <section class="folds">${fold('t-month', 'Monthly report', esc(fmtDate(t,{month:'long'})), monthReport())}${fold('t-year', 'Year in review', t.slice(0,4), yearReview())}</section>`}
   </section>`;
