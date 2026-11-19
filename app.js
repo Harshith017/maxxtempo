@@ -1933,7 +1933,7 @@ function viewToday(){
     ${(()=>{ const name = (prof().name||'').trim().split(/\s+/)[0]; const left = T.kcal - t.kcal;
       const nudge = !hasFood ? (S.date===localDate() ? 'Log your first meal and the day fills in here.' : 'Nothing was logged on this day.')
         : left>=0 ? `${n0(left)} kcal and ${n0(Math.max(0,T.protein-t.protein))} g protein left ${S.date===localDate()?'today':'that day'}.` : `${n0(-left)} kcal over ${S.date===localDate()?'today’s':'that day’s'} target.`;
-      return `<div class="hello">${S.date===localDate()?`<h1>${greeting()}${name?`, ${esc(name)}`:''}</h1>`:`<h1>${esc(fmtDate(S.date,{weekday:'long'}))}</h1>`}<p>${esc(nudge)}${S.date===localDate()&&t.water<WT*0.5&&new Date().getHours()>=14?' Drink some water too.':''}</p></div>`; })()}
+      return `<div class="hello"><p>${esc(nudge)}${S.date===localDate()&&t.water<WT*0.5&&new Date().getHours()>=14?' Drink some water too.':''}</p></div>`; })()}
     <section class="panel nring" aria-label="Nutrition today">
       ${(()=>{ const stK = hasFood ? goalState(t.kcal, T.kcal, 'range') : null;
         const rows = [
@@ -1948,17 +1948,17 @@ function viewToday(){
         return `<div class="nring-top">
           <div class="ringwrap">${rings([{p:P(t.carbs,T.carbs), color:'var(--carbs)'}, {p:P(t.protein,T.protein), color:'var(--protein)'}, {p:P(t.fat,T.fat), color:'var(--fat)'}])}
             <div class="ringc"><b>${hasFood?Math.round(P(t.kcal,T.kcal)):0}%</b><span>of goal</span></div></div>
-          <div class="nsum"><span class="muted small">You have eaten</span><div class="nbig"><b style="color:${stK?stText(stK):'var(--accent-text)'}">${n0(t.kcal)}</b> kcal</div><span class="muted small">of ${n0(T.kcal)} kcal</span>${statePill(stK)}</div>
+          <div class="nsum"><span class="muted small">You have eaten</span><div class="nbig"><b style="color:${stK?stText(stK):'var(--accent-text)'}">${n0(t.kcal)}</b> kcal</div><span class="muted small">of ${n0(T.kcal)} kcal</span></div>
         </div>
         <div class="mrows">${rows.map(([l,v,tg,u,kind,c,sub])=>{
           // Unsaturated has no target: show its share of the fat eaten instead.
-          if (kind==='info') return `<div class="mrow sub"><span class="sw"></span><span class="ml">${l}</span><span class="mv">${n0(v)}<span class="muted"> g</span></span><span class="mp muted">${t.fat_split>0?Math.round(v/t.fat_split*100)+'%':''}</span><span class="muted small" title="${t.fat_split<t.fat-0.5?'Restaurant meals that don’t give a saturated / unsaturated split are left out':''}">${t.fat_split<t.fat-0.5?'of known fat':'of fat'}</span></div>`;
+          if (kind==='info') return `<div class="mrow sub"><span class="sw"></span><span class="ml">${l}</span><span class="mv">${n0(v)}<span class="muted"> g</span></span><span class="mp muted" title="${t.fat_split<t.fat-0.5?'Share of the fat whose split is known (restaurant meals often don’t give one)':'Share of the fat eaten'}">${t.fat_split>0?Math.round(v/t.fat_split*100)+'%':''}</span></div>`;
           const st = hasFood ? goalState(v,tg,kind) : null;
           if (l==='Added sugar' && v >= 0.5) {
             const from = (day.foods||[]).map(f=>[f.name, addedSugar(f)]).filter(x=>x[1]>=0.5).sort((a,b)=>b[1]-a[1]);
-            return `<button type="button" class="mrow mbtn" data-action="sugarWhy" aria-expanded="${!!S.sugarWhy}"><span class="sw" style="background:${c}"></span><span class="ml">${l}</span><span class="mv">${n0(v)}<span class="muted"> / ≤${n0(tg)} ${u}</span></span><span class="mp" style="color:${st?stText(st):'var(--ink-3)'}">${Math.round(P(v,tg))}%</span>${statePill(st)||'<span></span>'}</button>${S.sugarWhy?`<div class="sugwhy">${from.map(([n,g])=>`<span>${esc(n)}</span><b>${n1(g)} g</b>`).join('')}</div>`:''}`;
+            return `<button type="button" class="mrow mbtn" data-action="sugarWhy" aria-expanded="${!!S.sugarWhy}"><span class="sw" style="background:${c}"></span><span class="ml">${l}</span><span class="mv">${n0(v)}<span class="muted"> / ≤${n0(tg)} ${u}</span></span><span class="mp" style="color:${st?stText(st):'var(--ink-3)'}">${Math.round(P(v,tg))}%</span></button>${S.sugarWhy?`<div class="sugwhy">${from.map(([n,g])=>`<span>${esc(n)}</span><b>${n1(g)} g</b>`).join('')}</div>`:''}`;
           }
-          return `<div class="mrow${sub?' sub':''}"><span class="sw" style="background:${c}"></span><span class="ml">${l}</span><span class="mv">${n0(v)}<span class="muted"> / ${kind==='limit'?'≤':''}${n0(tg)} ${u}</span></span><span class="mp" style="color:${st?stText(st):'var(--ink-3)'}">${hasFood?Math.round(P(v,tg)):0}%</span>${statePill(st)||'<span></span>'}</div>`; }).join('')}</div>
+          return `<div class="mrow${sub?' sub':''}"><span class="sw" style="background:${c}"></span><span class="ml">${l}</span><span class="mv">${n0(v)}<span class="muted"> / ${kind==='limit'?'≤':''}${n0(tg)} ${u}</span></span><span class="mp" style="color:${st?stText(st):'var(--ink-3)'}">${hasFood?Math.round(P(v,tg)):0}%</span></div>`; }).join('')}</div>
         <div class="stat3">
           <div data-tip="${esc(burnTip(B))}"><b style="color:${stText('plus')}">${emptyDay?'—':n0(B.total)}</b><span>kcal burned</span></div>
           <div><b>${emptyDay?'—':n0(B.training)}</b><span>training</span></div>
@@ -3539,6 +3539,10 @@ function render(){
   $('#goToday').hidden = isToday;
   $('#nextDay').disabled = isToday;
   document.querySelectorAll('.tab').forEach(b => { if (b.dataset.view===S.view) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
+  // Large title for the screen, as in iOS apps; Today also shows the date under it.
+  const LT = {today:'Today', gym:'Train', trends:'Trends', group:'Group', profile:'Profile', coach:'Profile', health:'Profile', setup:'Set up'};
+  $('#ltitle').textContent = !S.user ? 'MaxxTempo' : (S.view==='today' && !isToday ? fmtDate(S.date,{weekday:'long'}) : LT[S.view] || 'MaxxTempo');
+  $('#lsub').textContent = S.user && S.view==='today' ? fmtDate(S.date,{weekday:isToday?'long':undefined, day:'numeric', month:'long'}) : '';
   const ta = $('#logText'); const draft = ta ? ta.value : ''; const hadFocus = document.activeElement===ta;
   let html = '';
   if (!S.user) { $('#main').innerHTML = authView(); document.querySelector('.tabs').hidden = true; document.querySelector('.hright').hidden = true; $('#menu').hidden = true; return; }
