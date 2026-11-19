@@ -2925,6 +2925,13 @@ function bmResample(pts, n) {
 }
 // Left half of the body outline (x < 0), neck to crotch, arms hanging a little out.
 const BM_BODY = [[-12,60],[-13,73],[-30,80],[-50,84],[-63,89],[-71,99],[-75,115],[-76,132],[-78,152],[-80,172],[-82,190],[-85,200],[-89,216],[-92,236],[-92,252],[-93,264],[-96,274],[-98,288],[-96,302],[-90,309],[-85,303],[-84,290],[-81,276],[-79,266],[-74,244],[-69,222],[-65,205],[-63,192],[-61,172],[-58,152],[-55,138],[-52,150],[-48,172],[-42,196],[-40,212],[-44,230],[-48,248],[-50,268],[-48,294],[-43,318],[-37,336],[-36,348],[-38,364],[-38,382],[-33,404],[-25,424],[-21,434],[-24,443],[-28,451],[-22,457],[-9,457],[-8,447],[-10,434],[-11,412],[-13,386],[-13,364],[-12,344],[-10,326],[-9,302],[-6,276],[-3,259],[0,254]];
+const BM_SKIN = [
+  [[-12,54],[-13,72],[-7,90],[0,93],[7,90],[13,72],[12,54]],                                                     // neck
+  [[-92,262],[-96,276],[-98,290],[-96,302],[-90,309],[-85,303],[-84,290],[-80,272],[-82,262]],                     // hand
+  [[92,262],[96,276],[98,290],[96,302],[90,309],[85,303],[84,290],[80,272],[82,262]],
+  [[-23,426],[-21,434],[-24,443],[-28,451],[-22,457],[-9,457],[-8,447],[-10,428]],                                 // foot
+  [[23,426],[21,434],[24,443],[28,451],[22,457],[9,457],[8,447],[10,428]],
+];
 const BM_HEAD = [[0,4],[12,7],[19,18],[21,32],[18,46],[11,57],[0,61],[-11,57],[-18,46],[-21,32],[-19,18],[-12,7]];
 // Muscles: [group, border a, border b], both borders running from origin to insertion (left side; mirrored).
 const BM_FRONT = [
@@ -2941,6 +2948,8 @@ const BM_FRONT = [
   ['core',      [[-2,217],[-2,251]], [[-16,217],[-10,247]]],
   ['core',      [[-21,148],[-23,176],[-22,204],[-14,239]], [[-41,154],[-43,180],[-39,207],[-28,234]]],          // external oblique
   ['biceps',    [[-58,128],[-61,150],[-64,172],[-68,192]], [[-71,136],[-78,156],[-80,176],[-74,192]]],
+  ['biceps',    [[-74,150],[-79,164],[-80,180],[-76,194]], [[-77,146],[-81,162],[-82,180],[-79,194]]],             // brachialis
+  ['glutes',    [[-42,226],[-46,238],[-48,252]], [[-38,230],[-42,242],[-46,256]]],                                // tensor fasciae latae
   ['forearms',  [[-66,195],[-71,214],[-78,240],[-84,262]], [[-74,196],[-81,218],[-85,240],[-87,262]]],          // flexors
   ['forearms',  [[-75,192],[-84,206],[-90,226],[-91,250],[-90,262]], [[-82,194],[-88,210],[-92,232],[-93,252],[-91,262]]],   // brachioradialis
   ['quads',     [[-45,240],[-34,266],[-22,298],[-13,330]], [[-41,236],[-28,264],[-17,296],[-9,325]]],          // sartorius
@@ -2958,6 +2967,8 @@ const BM_BACK = [
   ['back',      [[-16,102],[-32,98],[-48,104],[-58,116]], [[-22,134],[-38,134],[-51,126],[-58,119]]],         // infraspinatus / teres
   ['back',      [[-4,146],[-24,138],[-44,130],[-56,131]], [[-4,226],[-34,210],[-48,178],[-55,142],[-56,134]]],   // latissimus dorsi
   ['back',      [[-2,148],[-2,192],[-3,234]], [[-13,148],[-16,192],[-12,234]]],                               // erector spinae
+  ['back',      [[-46,124],[-52,128],[-57,132]], [[-44,134],[-50,138],[-57,136]]],                                 // teres major
+  ['core',      [[-40,196],[-44,208],[-45,222]], [[-34,204],[-36,214],[-38,226]]],                                 // obliques (back)
   ['triceps',   [[-72,124],[-79,146],[-81,168],[-76,188]], [[-66,128],[-70,148],[-71,168],[-73,188]]],          // lateral head
   ['triceps',   [[-56,132],[-60,154],[-64,174],[-69,192]], [[-65,130],[-69,150],[-70,172],[-72,192]]],          // long head
   ['forearms',  [[-66,195],[-71,214],[-78,240],[-84,262]], [[-74,196],[-81,218],[-85,240],[-87,262]]],          // extensors
@@ -2966,6 +2977,7 @@ const BM_BACK = [
   ['glutes',    [[-3,232],[-20,230],[-41,240],[-49,264]], [[-3,278],[-18,290],[-37,286],[-49,268]]],            // gluteus maximus
   ['hamstrings',[[-39,288],[-44,306],[-40,326],[-33,344]], [[-26,292],[-27,310],[-27,328],[-27,344]]],          // biceps femoris
   ['hamstrings',[[-24,292],[-23,312],[-21,330],[-17,346]], [[-8,286],[-9,306],[-11,326],[-13,344]]],            // semitendinosus
+  ['hamstrings',[[-6,280],[-7,292],[-8,304]], [[-3,282],[-3,292],[-6,306]]],                                     // adductor magnus
   ['calves',    [[-35,350],[-39,366],[-35,388],[-24,404]], [[-23,348],[-23,368],[-22,388],[-21,404]]],          // gastrocnemius (outer)
   ['calves',    [[-21,348],[-20,368],[-18,392],[-17,406]], [[-11,350],[-11,368],[-13,390],[-17,406]]],          // gastrocnemius (inner)
   ['calves',    [[-34,394],[-29,412],[-22,426]], [[-14,398],[-13,412],[-18,426]]],                              // soleus
@@ -2989,10 +3001,12 @@ function bmFigure(muscles, fill, label, sets, U, back) {
   const title = g => !g ? '' : `<title>${titleCase(g)}: ${n0(sets[g]||0)} set${Math.round(sets[g]||0)===1?'':'s'}</title>`;
   const body = bmSmooth([...BM_BODY, ...bmMir(BM_BODY).reverse().slice(1)]);
   const parts = muscles.flatMap(([g, a, b]) => [bmMuscle(g, a, b, fill(g), U, title(g)), bmMuscle(g, bmMir(a), bmMir(b), fill(g), U, title(g))]).join('');
-  const knees = back ? '' : [-1, 1].map(s => `<ellipse cx="${s*24}" cy="${344}" rx="7" ry="8" class="knee"/>`).join('');
-  const spine = back ? `<path d="M0 64 L0 236" class="crease"/>` : `<path d="M0 90 L0 252" class="crease"/>`;
-  return `<path d="${bmSmooth(BM_HEAD)}" fill="${U('Skin')}" class="skin"/><path d="${body}" fill="${U('Skin')}" class="skin"/>
-    ${spine}${parts}${knees}<text x="0" y="478" text-anchor="middle" class="bmlbl">${label}</text>`;
+  const skin = BM_SKIN.map(p => `<path d="${bmSmooth(p)}" class="bskin" fill="${U('Skin')}"/>`).join('');
+  const knees = [-1, 1].map(s => back ? `<path d="M${s*14} 344 Q${s*24} 350 ${s*34} 344" class="crease"/>` : `<ellipse cx="${s*24}" cy="344" rx="6" ry="7" class="knee"/>`).join('');
+  return `<path d="${body}" class="groove"/>${skin}
+    <path d="${bmSmooth(BM_HEAD)}" class="bskin" fill="${U('Skin')}"/>
+    ${parts}${knees}<path d="${body}" fill="${U('Light')}" class="nohit"/>
+    <text x="0" y="478" text-anchor="middle" class="bmlbl">${label}</text>`;
 }
 let bmN = 0;
 function bodyMap(sets) {
@@ -3002,7 +3016,8 @@ function bodyMap(sets) {
   return `<svg class="bodymap" viewBox="-112 -4 444 492" role="img" aria-label="Sets per muscle, front and back">
     <defs>
       <linearGradient id="${id}Skin" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--bm-skin-hi)"/><stop offset="1" style="stop-color:var(--bm-skin)"/></linearGradient>
-      <linearGradient id="${id}Shade" x1="0" y1="0" x2=".9" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".28"/></linearGradient>
+      <linearGradient id="${id}Shade" x1="0" y1="0" x2=".9" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".34"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".22"/></linearGradient>
+      <radialGradient id="${id}Light" cx=".35" cy=".25" r=".9"><stop offset="0" stop-color="#fff" stop-opacity=".10"/><stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".16"/></radialGradient>
     </defs>
     <g>${bmFigure(BM_FRONT, fill, 'Front', sets, U, false)}</g>
     <g transform="translate(220,0)">${bmFigure(BM_BACK, fill, 'Back', sets, U, true)}</g>
