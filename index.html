@@ -60,6 +60,7 @@
   --pr:#F2C14E;
 }
 *{box-sizing:border-box}
+html,body{overflow-x:clip}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45;padding-inline:16px;padding-block:0 96px;-webkit-font-smoothing:antialiased}
 .wrap{max-width:1040px;margin-inline:auto}
 h1,h2,h3{font-family:var(--display);font-weight:700;letter-spacing:.01em;margin:0;text-wrap:balance}
@@ -99,7 +100,7 @@ main{padding-block:16px}
 .logger textarea:focus{border-color:var(--ink-3)}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .btn{border:0;background:var(--grad);color:var(--btn-ink);box-shadow:var(--glow);border-radius:12px;padding:9px 16px;font-weight:600;cursor:pointer}
-.btn:disabled{opacity:.5;cursor:default}
+.btn:disabled{opacity:.5;cursor:not-allowed;filter:saturate(.3)}
 .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line);box-shadow:none}
 .btn.ghost:hover{border-color:var(--ink-3)}
 .btn.sm{padding:6px 12px;font-size:13px;min-height:40px}
@@ -276,7 +277,7 @@ details.micros>summary .muted{white-space:nowrap;margin-left:auto}
 .post-pr{font-size:13px;color:var(--ink-2)}.post-foot{display:flex;align-items:center;gap:10px;margin-top:4px;flex-wrap:wrap}
 .feed{display:flex;flex-direction:column;gap:10px}
 .wkstart .routines{display:grid;gap:10px}.routine{display:flex;justify-content:space-between;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;flex-wrap:wrap}.routine>div:first-child{min-width:0;flex:1 1 180px}
-.wklive{gap:14px}.wkhead{display:flex;flex-direction:column;gap:8px;position:sticky;top:0;z-index:3;background:var(--surface);padding-bottom:8px;border-bottom:1px solid var(--line)}
+.wklive{gap:14px}.wkhead{display:flex;flex-direction:column;gap:8px;position:sticky;top:var(--toph,0px);z-index:3;background:var(--surface);padding-bottom:8px;border-bottom:1px solid var(--line)}
 .wkname{font-family:inherit;font-weight:700;font-size:20px;line-height:1.2;border:0;background:transparent;color:var(--ink);padding:4px 0;width:100%}.wkname:focus{outline:2px solid var(--accent);border-radius:6px}
 .wkstats{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--ink-2)}.wkstats b{font-size:16px;color:var(--ink);font-variant-numeric:tabular-nums}
 .wkex{border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px}.wkex.ss{border-left:4px solid var(--accent)}

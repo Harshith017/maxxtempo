@@ -4329,6 +4329,8 @@ async function startFor(user){
 document.addEventListener('visibilitychange', () => { if (document.visibilityState!=='visible') return;
   if (S.isAdmin) loadMembers();
   if (S.pendingUser && S.memberInfo?.status!=='declined') startFor(S.pendingUser); });
+// Sticky bars under the app's top bar (the live workout header) sit just below it.
+try { const topBar = document.querySelector('.top'); if (topBar && window.ResizeObserver) new ResizeObserver(() => document.documentElement.style.setProperty('--toph', topBar.offsetHeight + 'px')).observe(topBar); } catch {}
 // A tapped notification opens Today or Train.
 const NOTE_VIEW = {food:'today', today:'today', gym:'gym'};
 try { const v = NOTE_VIEW[new URLSearchParams(location.search).get('view')]; if (v) { S.view = v; history.replaceState(null, '', location.pathname); } } catch {}

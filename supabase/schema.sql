@@ -352,6 +352,7 @@ create or replace function public.share_food(p_key text, p_name text, p_aliases 
 returns void language plpgsql security definer set search_path = '' as $$
 begin
   if not private.is_approved() then raise exception 'not approved' using errcode = '42501'; end if;
+  if not private.group_per_ok(p_per) then raise exception 'values out of range' using errcode = '22023'; end if;   -- section 20
   insert into public.group_foods as g (key, name, aliases, per, units, verified, added_by)
   values (p_key, p_name, coalesce(p_aliases, '[]'::jsonb), p_per, coalesce(p_units, '{}'::jsonb), coalesce(p_verified, false), auth.uid())
   on conflict (key) do update
@@ -603,3 +604,23 @@ begin
 end $$;
 revoke all on function private.push_tick() from public, anon, authenticated;
 select cron.schedule('push-tick', '15 seconds', 'select private.push_tick()');
+
+-- 20. Audit (November): every shared group food value is range-checked on the server
+--     (fibre, sugar, added sugar 0-100 g; each vitamin/mineral a number 0-100,000), and
+--     food_per_ok has a fixed search path.
+alter function private.food_per_ok(jsonb) set search_path = '';
+create or replace function private.group_per_ok(p jsonb) returns boolean
+language sql immutable set search_path = '' as $$
+  select coalesce(
+       jsonb_typeof(p) = 'object'
+   and coalesce((p->>'fiber')::numeric, 0) between 0 and 100
+   and coalesce((p->>'sugar')::numeric, 0) between 0 and 100
+   and coalesce((p->>'added_sugar')::numeric, 0) between 0 and 100
+   and (p->'micros' is null or jsonb_typeof(p->'micros') = 'null' or (
+         jsonb_typeof(p->'micros') = 'object'
+     and not exists (select 1 from jsonb_each(p->'micros') e
+                     where jsonb_typeof(e.value) <> 'number' or (e.value)::text::numeric not between 0 and 100000))),
+   false);
+$$;
+revoke all on function private.group_per_ok(jsonb) from public, anon;
+grant execute on function private.group_per_ok(jsonb) to authenticated;
