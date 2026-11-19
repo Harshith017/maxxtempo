@@ -20,17 +20,17 @@
 /* Archivo (SIL Open Font License, fonts/OFL.txt), served from the app itself so it also works offline. */
 @font-face{font-family:"Archivo";src:url(fonts/archivo-var.woff) format("woff");font-weight:100 900;font-stretch:62% 125%;font-style:normal;font-display:swap}
 :root{
-  --bg:#F2F2F7; --surface:#FFFFFF; --surface-2:rgba(118,118,128,.12); --ink:#000000; --ink-2:rgba(60,60,67,.85); --ink-3:rgba(60,60,67,.62); --line:rgba(60,60,67,.18);
-  --accent:#3256E6; --accent-ink:#FFFFFF; --accent-text:#2C4FDB;
+  --bg:#F1F4F2; --surface:#FFFFFF; --surface-2:rgba(118,118,128,.12); --ink:#000000; --ink-2:rgba(60,60,67,.85); --ink-3:rgba(60,60,67,.62); --line:rgba(60,60,67,.18);
+  --accent:#047857; --accent-ink:#FFFFFF; --accent-text:#047857;
   --grad:var(--btn); --glow:none; --card-shadow:none;
   --protein:#EA553A; --carbs:#E89A12; --fat:#7A5AF5; --water:#1C93E0;
   --good:#248A3D; --warn:#C27400; --warn-t:#9A5B00; --bad:#D70015;
-  --btn:#3256E6; --btn-ink:#FFFFFF; --focus:#3256E6; --seg-on:#FFFFFF; --glass:rgba(249,249,249,.9); --fill:rgba(118,118,128,.12); --tint-bg:rgba(50,86,230,.12);
-  --tab-on:transparent; --tab-on-ink:#3256E6; --label-line:#000000;
+  --btn:#047857; --btn-ink:#FFFFFF; --focus:#059669; --seg-on:#FFFFFF; --glass:rgba(249,249,249,.9); --fill:rgba(118,118,128,.12); --tint-bg:rgba(5,150,105,.12);
+  --tab-on:transparent; --tab-on-ink:#047857; --label-line:#000000;
   --st-under:#E58A00; --st-under-t:#9A5B00; --st-at:#28A745; --st-at-t:#1F7A35; --st-over:#E5352B; --st-over-t:#C4281F; --st-plus:#2F7FD1; --st-plus-t:#1F5F9E;
-  --bm-skin:#E8E3DE; --bm-skin-hi:#F7F4F1; --bm-muscle:#DCD2CB; --bm-line:rgba(80,58,46,.4); --bm-fib:rgba(80,58,46,.2); --bm-hot:#EE5A3A;
-  --bm-heat-1:#F6B23C; --bm-heat-2:#EE5A3A; --bm-heat-3:#B0142F;
-  --pr:#C28800;
+  --bm-skin:#EFEAE5; --bm-skin-hi:#F8F5F2; --bm-muscle:#E2DCD6; --bm-groove:#C3BAB2; --bm-line:rgba(70,52,40,.3); --bm-fib:rgba(70,52,40,.16); --bm-hot:#F97316;
+  --bm-heat-1:#FDBA74; --bm-heat-2:#F97316; --bm-heat-3:#C2410C;
+  --pr:#EA580C;
   --display:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --body:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --rounded:ui-rounded,"SF Pro Rounded",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -39,31 +39,31 @@
   :root:not([data-theme="light"]){
     color-scheme:dark;
   --bg:#000000; --surface:#1C1C1E; --surface-2:rgba(118,118,128,.24); --ink:#FFFFFF; --ink-2:rgba(235,235,245,.82); --ink-3:rgba(235,235,245,.58); --line:rgba(84,84,88,.6);
-  --accent:#5E7EFF; --accent-ink:#FFFFFF; --accent-text:#7B95FF;
+  --accent:#34D399; --accent-ink:#022C1E; --accent-text:#4ADEA5;
   --grad:var(--btn); --glow:none; --card-shadow:none;
   --protein:#C43F3E; --carbs:#C68206; --fat:#8557C8; --water:#4D97DE;
   --good:#30D158; --warn:#FF9F0A; --warn-t:#FFB340; --bad:#FF453A;
-  --btn:#4F6FF5; --btn-ink:#FFFFFF; --focus:#7B95FF; --seg-on:#636366; --glass:rgba(22,22,24,.9); --fill:rgba(118,118,128,.24); --tint-bg:rgba(94,126,255,.18);
-  --tab-on:transparent; --tab-on-ink:#7B95FF; --label-line:#48484A;
+  --btn:#34D399; --btn-ink:#022C1E; --focus:#4ADEA5; --seg-on:#636366; --glass:rgba(22,22,24,.9); --fill:rgba(118,118,128,.24); --tint-bg:rgba(52,211,153,.16);
+  --tab-on:transparent; --tab-on-ink:#4ADEA5; --label-line:#48484A;
   --st-under:#FF9F0A; --st-under-t:#FFB340; --st-at:#30D158; --st-at-t:#4CD964; --st-over:#FF453A; --st-over-t:#FF6961; --st-plus:#64B5FF; --st-plus-t:#8AC7FF;
-  --bm-skin:#26262A; --bm-skin-hi:#333338; --bm-muscle:#3D3D42; --bm-line:rgba(0,0,0,.6); --bm-fib:rgba(0,0,0,.3); --bm-hot:#FF5A3C;
-  --bm-heat-1:#F5A524; --bm-heat-2:#FF5A3C; --bm-heat-3:#FF2E63;
-  --pr:#FFD60A;
+  --bm-skin:#2E2E33; --bm-skin-hi:#3A3A40; --bm-muscle:#3B3B41; --bm-groove:#141417; --bm-line:rgba(0,0,0,.55); --bm-fib:rgba(0,0,0,.28); --bm-hot:#FF8A3D;
+  --bm-heat-1:#8A2E0D; --bm-heat-2:#E5560B; --bm-heat-3:#FF8A3D;
+  --pr:#FB923C;
   }
 }
 :root[data-theme="dark"]{
   color-scheme:dark;
   --bg:#000000; --surface:#1C1C1E; --surface-2:rgba(118,118,128,.24); --ink:#FFFFFF; --ink-2:rgba(235,235,245,.82); --ink-3:rgba(235,235,245,.58); --line:rgba(84,84,88,.6);
-  --accent:#5E7EFF; --accent-ink:#FFFFFF; --accent-text:#7B95FF;
+  --accent:#34D399; --accent-ink:#022C1E; --accent-text:#4ADEA5;
   --grad:var(--btn); --glow:none; --card-shadow:none;
   --protein:#C43F3E; --carbs:#C68206; --fat:#8557C8; --water:#4D97DE;
   --good:#30D158; --warn:#FF9F0A; --warn-t:#FFB340; --bad:#FF453A;
-  --btn:#4F6FF5; --btn-ink:#FFFFFF; --focus:#7B95FF; --seg-on:#636366; --glass:rgba(22,22,24,.9); --fill:rgba(118,118,128,.24); --tint-bg:rgba(94,126,255,.18);
-  --tab-on:transparent; --tab-on-ink:#7B95FF; --label-line:#48484A;
+  --btn:#34D399; --btn-ink:#022C1E; --focus:#4ADEA5; --seg-on:#636366; --glass:rgba(22,22,24,.9); --fill:rgba(118,118,128,.24); --tint-bg:rgba(52,211,153,.16);
+  --tab-on:transparent; --tab-on-ink:#4ADEA5; --label-line:#48484A;
   --st-under:#FF9F0A; --st-under-t:#FFB340; --st-at:#30D158; --st-at-t:#4CD964; --st-over:#FF453A; --st-over-t:#FF6961; --st-plus:#64B5FF; --st-plus-t:#8AC7FF;
-  --bm-skin:#26262A; --bm-skin-hi:#333338; --bm-muscle:#3D3D42; --bm-line:rgba(0,0,0,.6); --bm-fib:rgba(0,0,0,.3); --bm-hot:#FF5A3C;
-  --bm-heat-1:#F5A524; --bm-heat-2:#FF5A3C; --bm-heat-3:#FF2E63;
-  --pr:#FFD60A;
+  --bm-skin:#2E2E33; --bm-skin-hi:#3A3A40; --bm-muscle:#3B3B41; --bm-groove:#141417; --bm-line:rgba(0,0,0,.55); --bm-fib:rgba(0,0,0,.28); --bm-hot:#FF8A3D;
+  --bm-heat-1:#8A2E0D; --bm-heat-2:#E5560B; --bm-heat-3:#FF8A3D;
+  --pr:#FB923C;
 }
 *{box-sizing:border-box}
 html,body{overflow-x:clip}
@@ -600,10 +600,13 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 /* body map */
 .bmwrap{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}
 .bodymap{max-width:380px}
-.bodymap .skin{stroke:var(--bm-line);stroke-width:.8}
-.bodymap .mline{fill:none;stroke:var(--bm-line);stroke-width:.7}
-.bodymap .fib{fill:none;stroke:var(--bm-fib);stroke-width:.45;stroke-linecap:round}
-.bodymap .crease,.bodymap .knee{fill:none;stroke:var(--bm-fib);stroke-width:.8}
+.bodymap .groove{fill:var(--bm-groove);stroke:var(--bm-line);stroke-width:.8}
+.bodymap .bskin{stroke:var(--bm-line);stroke-width:.7}
+.bodymap .knee{fill:var(--bm-muscle);stroke:var(--bm-line);stroke-width:.6}
+.bodymap .nohit{pointer-events:none}
+.bodymap .mline{fill:none;stroke:var(--bm-line);stroke-width:.6}
+.bodymap .fib{fill:none;stroke:var(--bm-fib);stroke-width:.4;stroke-linecap:round}
+.bodymap .crease{fill:none;stroke:var(--bm-line);stroke-width:.7}
 .bodymap .bmlbl{font-size:14px;font-weight:600;fill:var(--ink-3);font-family:var(--body)}
 .bodymap .mus:hover>path:first-of-type{filter:brightness(1.08)}
 /* 7-day columns (dataviz: thin capped bars from one baseline, target tick, today labelled) */
@@ -630,6 +633,15 @@ abbr[title]{text-decoration:none}
 .xp-addown{margin-top:10px;width:100%}
 .logtime{display:flex;align-items:center;gap:8px;margin-top:8px}
 .logtime input{min-height:40px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);font:inherit}
+
+/* touch polish (Vercel web interface guidelines): no double-tap zoom delay, iOS-style press
+   highlights instead of the browser's grey flash, sheets that don't scroll the page behind */
+html{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+dialog,.menu{overscroll-behavior:contain}
+.fold>summary:active,.exrow:active,.item.click:active{background:var(--fill)}
+.chip:active,.opt:active,.seg button:active,.iconbtn:active,.tab:active{opacity:.6}
+h1,h2,h3{text-wrap:balance}
+@media (prefers-reduced-motion:no-preference){.btn,.chip,.opt,.tab,.iconbtn,.fold>summary{transition:opacity .12s ease,background-color .12s ease}}
 </style>
 </head>
 <body>
