@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="MaxxTempo">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#DFE5EB">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://idmvlecpdgtiyjeikphi.supabase.co https://raw.githubusercontent.com https://wger.de https://static.exercisedb.dev https://images.openfoodfacts.org https://maxxtempo-api.harshithhb17.workers.dev; connect-src 'self' https://idmvlecpdgtiyjeikphi.supabase.co wss://idmvlecpdgtiyjeikphi.supabase.co https://maxxtempo-api.harshithhb17.workers.dev wss://maxxtempo-api.harshithhb17.workers.dev https://api.pwnedpasswords.com https://world.openfoodfacts.org https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com; worker-src 'self' blob:; manifest-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <script src="boot.js"></script>
@@ -20,17 +20,17 @@
 /* Archivo (SIL Open Font License, fonts/OFL.txt), served from the app itself so it also works offline. */
 @font-face{font-family:"Archivo";src:url(fonts/archivo-var.woff) format("woff");font-weight:100 900;font-stretch:62% 125%;font-style:normal;font-display:swap}
 :root{
-  --bg:#F1F4F2; --surface:#FFFFFF; --surface-2:rgba(118,118,128,.12); --ink:#000000; --ink-2:rgba(60,60,67,.85); --ink-3:rgba(60,60,67,.62); --line:rgba(60,60,67,.18);
-  --accent:#047857; --accent-ink:#FFFFFF; --accent-text:#047857;
+  --bg:#DFE5EB; --surface:#FCFFFF; --surface-2:rgba(17,18,23,.06); --ink:#111217; --ink-2:#3E4350; --ink-3:#5E6573; --line:rgba(17,18,23,.12);
+  --accent:#723CD6; --accent-ink:#FFFFFF; --accent-text:#723CD6;
   --grad:var(--btn); --glow:none; --card-shadow:none;
-  --protein:#EA553A; --carbs:#E89A12; --fat:#7A5AF5; --water:#1C93E0;
-  --good:#248A3D; --warn:#C27400; --warn-t:#9A5B00; --bad:#D70015;
-  --btn:#047857; --btn-ink:#FFFFFF; --focus:#059669; --seg-on:#FFFFFF; --glass:rgba(249,249,249,.9); --fill:rgba(118,118,128,.12); --tint-bg:rgba(5,150,105,.12);
-  --tab-on:transparent; --tab-on-ink:#047857; --label-line:#000000;
-  --st-under:#E58A00; --st-under-t:#9A5B00; --st-at:#28A745; --st-at-t:#1F7A35; --st-over:#E5352B; --st-over-t:#C4281F; --st-plus:#2F7FD1; --st-plus-t:#1F5F9E;
-  --bm-skin:#EFEAE5; --bm-skin-hi:#F8F5F2; --bm-muscle:#E2DCD6; --bm-groove:#C3BAB2; --bm-line:rgba(70,52,40,.3); --bm-fib:rgba(70,52,40,.16); --bm-hot:#F97316;
-  --bm-heat-1:#FDBA74; --bm-heat-2:#F97316; --bm-heat-3:#C2410C;
-  --pr:#EA580C;
+  --protein:#EF233C; --carbs:#D4902A; --fat:#723CD6; --water:#2A8FBA;
+  --good:#723CD6; --warn:#EDB158; --warn-t:#8F6217; --bad:#CC1630;
+  --btn:#723CD6; --btn-ink:#FFFFFF; --focus:#723CD6; --seg-on:#FCFFFF; --glass:rgba(252,255,255,.86); --fill:rgba(17,18,23,.06); --tint-bg:rgba(114,60,214,.11);
+  --tab-on:transparent; --tab-on-ink:#723CD6; --label-line:#111217;
+  --st-under:#EDB158; --st-under-t:#8F6217; --st-at:#723CD6; --st-at-t:#723CD6; --st-over:#EF233C; --st-over-t:#CC1630; --st-plus:#4A8FD6; --st-plus-t:#2F6DAE;
+  --bm-skin:#E7ECF0; --bm-skin-hi:#F6F8FA; --bm-muscle:#D6DCE3; --bm-groove:#B4BDC7; --bm-line:rgba(30,35,50,.3); --bm-fib:rgba(30,35,50,.14); --bm-hot:#EF233C;
+  --bm-heat-1:#F2C26B; --bm-heat-2:#EF233C; --bm-heat-3:#9E0E24;
+  --gold:#EDB158; --gold-t:#8F6217; --pr:#EDB158; --pr-ink:#111217;
   --display:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --body:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --rounded:ui-rounded,"SF Pro Rounded",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -38,32 +38,32 @@
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     color-scheme:dark;
-  --bg:#000000; --surface:#1C1C1E; --surface-2:rgba(118,118,128,.24); --ink:#FFFFFF; --ink-2:rgba(235,235,245,.82); --ink-3:rgba(235,235,245,.58); --line:rgba(84,84,88,.6);
-  --accent:#34D399; --accent-ink:#022C1E; --accent-text:#4ADEA5;
+  --bg:#111217; --surface:#1B1D24; --surface-2:rgba(223,229,235,.08); --ink:#F4F7F9; --ink-2:#DFE5EB; --ink-3:#9AA1AE; --line:rgba(223,229,235,.12);
+  --accent:#7C49E3; --accent-ink:#FFFFFF; --accent-text:#A57BFF;
   --grad:var(--btn); --glow:none; --card-shadow:none;
-  --protein:#FF6B57; --carbs:#FFC233; --fat:#B18CFF; --water:#5AC8FA;
-  --good:#30D158; --warn:#FF9F0A; --warn-t:#FFB340; --bad:#FF453A;
-  --btn:#34D399; --btn-ink:#022C1E; --focus:#4ADEA5; --seg-on:#636366; --glass:rgba(22,22,24,.9); --fill:rgba(118,118,128,.24); --tint-bg:rgba(52,211,153,.16);
-  --tab-on:transparent; --tab-on-ink:#4ADEA5; --label-line:#48484A;
-  --st-under:#FF9F0A; --st-under-t:#FFB340; --st-at:#30D158; --st-at-t:#4CD964; --st-over:#FF453A; --st-over-t:#FF6961; --st-plus:#64B5FF; --st-plus-t:#8AC7FF;
-  --bm-skin:#2E2E33; --bm-skin-hi:#3A3A40; --bm-muscle:#3B3B41; --bm-groove:#141417; --bm-line:rgba(0,0,0,.55); --bm-fib:rgba(0,0,0,.28); --bm-hot:#FF8A3D;
-  --bm-heat-1:#8A2E0D; --bm-heat-2:#E5560B; --bm-heat-3:#FF8A3D;
-  --pr:#FB923C;
+  --protein:#FF4D61; --carbs:#EDB158; --fat:#A57BFF; --water:#5CC8E8;
+  --good:#A57BFF; --warn:#EDB158; --warn-t:#EDB158; --bad:#FF4D61;
+  --btn:#7C49E3; --btn-ink:#FFFFFF; --focus:#A57BFF; --seg-on:#3A3D49; --glass:rgba(27,29,36,.88); --fill:rgba(223,229,235,.08); --tint-bg:rgba(165,123,255,.16);
+  --tab-on:transparent; --tab-on-ink:#A57BFF; --label-line:#4A4D59;
+  --st-under:#EDB158; --st-under-t:#EDB158; --st-at:#A57BFF; --st-at-t:#B794FF; --st-over:#FF4D61; --st-over-t:#FF6E7F; --st-plus:#6FB0F0; --st-plus-t:#8EC2F5;
+  --bm-skin:#2A2C34; --bm-skin-hi:#353845; --bm-muscle:#33363F; --bm-groove:#0C0D11; --bm-line:rgba(0,0,0,.55); --bm-fib:rgba(0,0,0,.28); --bm-hot:#FF4D61;
+  --bm-heat-1:#7A5420; --bm-heat-2:#EF233C; --bm-heat-3:#FF6B7C;
+  --gold:#EDB158; --gold-t:#EDB158; --pr:#EDB158; --pr-ink:#111217;
   }
 }
 :root[data-theme="dark"]{
   color-scheme:dark;
-  --bg:#000000; --surface:#1C1C1E; --surface-2:rgba(118,118,128,.24); --ink:#FFFFFF; --ink-2:rgba(235,235,245,.82); --ink-3:rgba(235,235,245,.58); --line:rgba(84,84,88,.6);
-  --accent:#34D399; --accent-ink:#022C1E; --accent-text:#4ADEA5;
+  --bg:#111217; --surface:#1B1D24; --surface-2:rgba(223,229,235,.08); --ink:#F4F7F9; --ink-2:#DFE5EB; --ink-3:#9AA1AE; --line:rgba(223,229,235,.12);
+  --accent:#7C49E3; --accent-ink:#FFFFFF; --accent-text:#A57BFF;
   --grad:var(--btn); --glow:none; --card-shadow:none;
-  --protein:#FF6B57; --carbs:#FFC233; --fat:#B18CFF; --water:#5AC8FA;
-  --good:#30D158; --warn:#FF9F0A; --warn-t:#FFB340; --bad:#FF453A;
-  --btn:#34D399; --btn-ink:#022C1E; --focus:#4ADEA5; --seg-on:#636366; --glass:rgba(22,22,24,.9); --fill:rgba(118,118,128,.24); --tint-bg:rgba(52,211,153,.16);
-  --tab-on:transparent; --tab-on-ink:#4ADEA5; --label-line:#48484A;
-  --st-under:#FF9F0A; --st-under-t:#FFB340; --st-at:#30D158; --st-at-t:#4CD964; --st-over:#FF453A; --st-over-t:#FF6961; --st-plus:#64B5FF; --st-plus-t:#8AC7FF;
-  --bm-skin:#2E2E33; --bm-skin-hi:#3A3A40; --bm-muscle:#3B3B41; --bm-groove:#141417; --bm-line:rgba(0,0,0,.55); --bm-fib:rgba(0,0,0,.28); --bm-hot:#FF8A3D;
-  --bm-heat-1:#8A2E0D; --bm-heat-2:#E5560B; --bm-heat-3:#FF8A3D;
-  --pr:#FB923C;
+  --protein:#FF4D61; --carbs:#EDB158; --fat:#A57BFF; --water:#5CC8E8;
+  --good:#A57BFF; --warn:#EDB158; --warn-t:#EDB158; --bad:#FF4D61;
+  --btn:#7C49E3; --btn-ink:#FFFFFF; --focus:#A57BFF; --seg-on:#3A3D49; --glass:rgba(27,29,36,.88); --fill:rgba(223,229,235,.08); --tint-bg:rgba(165,123,255,.16);
+  --tab-on:transparent; --tab-on-ink:#A57BFF; --label-line:#4A4D59;
+  --st-under:#EDB158; --st-under-t:#EDB158; --st-at:#A57BFF; --st-at-t:#B794FF; --st-over:#FF4D61; --st-over-t:#FF6E7F; --st-plus:#6FB0F0; --st-plus-t:#8EC2F5;
+  --bm-skin:#2A2C34; --bm-skin-hi:#353845; --bm-muscle:#33363F; --bm-groove:#0C0D11; --bm-line:rgba(0,0,0,.55); --bm-fib:rgba(0,0,0,.28); --bm-hot:#FF4D61;
+  --bm-heat-1:#7A5420; --bm-heat-2:#EF233C; --bm-heat-3:#FF6B7C;
+  --gold:#EDB158; --gold-t:#EDB158; --pr:#EDB158; --pr-ink:#111217;
 }
 *{box-sizing:border-box}
 html,body{overflow-x:clip}
@@ -642,6 +642,11 @@ dialog,.menu{overscroll-behavior:contain}
 .chip:active,.opt:active,.seg button:active,.iconbtn:active,.tab:active{opacity:.6}
 h1,h2,h3{text-wrap:balance}
 @media (prefers-reduced-motion:no-preference){.btn,.chip,.opt,.tab,.iconbtn,.fold>summary{transition:opacity .12s ease,background-color .12s ease}}
+
+/* record badges: gold with obsidian text */
+.prbadge{background:var(--pr);color:var(--pr-ink)}
+.wdone.pr{background:var(--pr);border-color:var(--pr);color:var(--pr-ink)}
+.pod.p1 .pblock{background:color-mix(in srgb,var(--gold) 40%,var(--surface))}
 </style>
 </head>
 <body>
