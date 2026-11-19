@@ -40,7 +40,7 @@
   --bg:#0A0C0B; --surface:#141816; --surface-2:#1D2220; --ink:#F2F4F0; --ink-2:#B4BCB6; --ink-3:#8A938D; --line:#272D29;
   --accent:#3FE0A0; --accent-ink:#04150D; --accent-text:#4BE3A6;
   --grad:var(--btn); --glow:none; --card-shadow:none;
-  --protein:#FF7559; --carbs:#FFB938; --fat:#A08CFF; --water:#4CB6FF;
+  --protein:#C43F3E; --carbs:#C68206; --fat:#8557C8; --water:#4D97DE;
   --good:#4BE3A6; --warn:#FFAA4A; --warn-t:#FFB865; --bad:#FF6A57;
   --btn:#3FE0A0; --btn-ink:#04150D; --focus:#4BE3A6; --seg-on:#2C3330; --glass:rgba(20,24,22,.82);
   --tab-on:rgba(63,224,160,.12); --tab-on-ink:#4BE3A6; --label-line:#4A524D;
@@ -55,7 +55,7 @@
   --bg:#0A0C0B; --surface:#141816; --surface-2:#1D2220; --ink:#F2F4F0; --ink-2:#B4BCB6; --ink-3:#8A938D; --line:#272D29;
   --accent:#3FE0A0; --accent-ink:#04150D; --accent-text:#4BE3A6;
   --grad:var(--btn); --glow:none; --card-shadow:none;
-  --protein:#FF7559; --carbs:#FFB938; --fat:#A08CFF; --water:#4CB6FF;
+  --protein:#C43F3E; --carbs:#C68206; --fat:#8557C8; --water:#4D97DE;
   --good:#4BE3A6; --warn:#FFAA4A; --warn-t:#FFB865; --bad:#FF6A57;
   --btn:#3FE0A0; --btn-ink:#04150D; --focus:#4BE3A6; --seg-on:#2C3330; --glass:rgba(20,24,22,.82);
   --tab-on:rgba(63,224,160,.12); --tab-on-ink:#4BE3A6; --label-line:#4A524D;
@@ -206,9 +206,9 @@ tr.sel td{background:var(--surface-2)}
 
 /* charts */
 .chart{width:100%;height:auto;display:block}
-.chart text{fill:var(--ink-3);font-size:11px;font-family:var(--body)}
+.chart text{fill:var(--ink-3);font-size:11px;font-family:var(--body);font-variant-numeric:tabular-nums}
 .chart .grid-l{stroke:var(--line);stroke-width:1}
-.chart .ref{stroke:var(--ink-2);stroke-width:1.5;stroke-dasharray:4 4}
+.chart .ref{stroke:var(--ink-2);stroke-width:1.5}
 .chart .ref-t{fill:var(--ink-2);font-weight:600}
 .tip{position:fixed;z-index:50;pointer-events:none;background:var(--ink);color:var(--bg);font-size:12.5px;padding:6px 9px;border-radius:6px;white-space:pre;font-variant-numeric:tabular-nums;box-shadow:0 4px 14px rgba(0,0,0,.18)}
 
@@ -579,6 +579,14 @@ dialog::backdrop{background:rgba(8,10,9,.5);backdrop-filter:blur(3px);-webkit-ba
 .bodymap .crease,.bodymap .knee{fill:none;stroke:var(--bm-fib);stroke-width:.8}
 .bodymap .bmlbl{font-size:14px;font-weight:600;fill:var(--ink-3);font-family:var(--body)}
 .bodymap .mus:hover>path:first-of-type{filter:brightness(1.08)}
+/* 7-day columns (dataviz: thin capped bars from one baseline, target tick, today labelled) */
+.wbars{gap:4px}
+.wtrack{background:none;border-radius:0;border-bottom:1px solid var(--line);max-width:none;overflow:visible;height:72px}
+.wfill{left:50%;right:auto;width:min(24px,70%);transform:translateX(-50%);border-radius:4px 4px 0 0}
+.wt{left:50%;right:auto;width:min(34px,92%);transform:translateX(-50%);border-top:2px solid var(--ink-2);border-radius:1px;opacity:.7}
+.wv{font-size:11.5px;font-weight:700;color:var(--ink);height:16px}
+.wb{cursor:default;border-radius:8px;outline-offset:2px}
+.tip{border-radius:10px;padding:7px 10px;font-weight:600;max-width:260px;white-space:pre-line}
 .bmkey{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--ink-3)}
 .bmkey i{width:84px;height:6px;border-radius:999px;background:linear-gradient(90deg,var(--bm-heat-1),var(--bm-heat-2),var(--bm-heat-3))}
 .musclewrap{grid-template-columns:1fr;gap:16px}

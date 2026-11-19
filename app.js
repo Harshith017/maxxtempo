@@ -1746,7 +1746,7 @@ function barChart({rows, target, color, unit, label, wide, xfmt}){
   const iw=W-m.l-m.r, ih=H-m.t-m.b;
   const max = niceMax(Math.max(target||0, ...rows.map(r=>r.v))*1.08);
   const y = v => m.t + ih*(1-v/max);
-  const bw = iw/rows.length; const gap = Math.min(2, bw*0.2); const w = Math.max(1, bw-gap);
+  const bw = iw/rows.length; const w = Math.max(1, Math.min(24, bw-2)), gap = bw - w;
   let g = '';
   for (const t of [0, max/2, max]) g += `<line class="grid-l" x1="${m.l}" x2="${W-m.r}" y1="${y(t)}" y2="${y(t)}"/><text x="${m.l-6}" y="${y(t)+4}" text-anchor="end">${n0(t)}</text>`;
   let bars='';
@@ -1771,13 +1771,15 @@ function lineChart({pts, unit, color, wide}){
   let g=''; for (const t of [lo,(lo+hi)/2,hi]) g+=`<line class="grid-l" x1="${m.l}" x2="${W-m.r}" y1="${y(t)}" y2="${y(t)}"/><text x="${m.l-6}" y="${y(t)+4}" text-anchor="end">${n1(t)}</text>`;
   const d = pts.map((p,i)=>`${i?'L':'M'}${x(i)},${y(p.v)}`).join(' ');
   const area = pts.length>1 ? `<path d="${d} L${x(pts.length-1)},${m.t+ih} L${x(0)},${m.t+ih} Z" fill="${color}" opacity=".10"/>` : '';
-  let dots=''; pts.forEach((p,i)=>{ const last=i===pts.length-1; if (p.raw!=null) dots+=`<circle cx="${x(i)}" cy="${y(p.raw)}" r="3" fill="var(--ink-3)"/>`; dots+=`<circle cx="${x(i)}" cy="${y(p.v)}" r="${last?5:3.5}" fill="${last?color:'var(--surface)'}" stroke="${color}" stroke-width="2"/>`;
+  let dots=''; pts.forEach((p,i)=>{ const last=i===pts.length-1; if (p.raw!=null) dots+=`<circle cx="${x(i)}" cy="${y(p.raw)}" r="2.5" fill="var(--ink-3)" opacity=".55"/>`;
+    if (last || pts.length<=12) dots+=`<circle cx="${x(i)}" cy="${y(p.v)}" r="${last?5:3}" fill="${color}" stroke="var(--surface)" stroke-width="2"/>`;
     dots+=`<rect x="${x(i)-Math.max(8,iw/pts.length/2)}" y="${m.t}" width="${Math.max(16,iw/pts.length)}" height="${ih}" fill="transparent" data-tip="${esc(fmtDate(p.date)+'\n'+p.tip)}"/>`; });
   const lp=pts[pts.length-1];
   const endLbl = `<text x="${Math.min(x(pts.length-1)+8,W-4)}" y="${y(lp.v)-9}" text-anchor="end" style="fill:var(--ink);font-weight:700">${n1(lp.v)} ${unit}</text>`;
   let xl=`<text x="${x(0)}" y="${H-8}" text-anchor="${pts.length===1?'middle':'start'}">${esc(fmtDate(pts[0].date,{day:'numeric',month:'short'}))}</text>`;
   if (pts.length>1) xl+=`<text x="${x(pts.length-1)}" y="${H-8}" text-anchor="end">${esc(fmtDate(lp.date,{day:'numeric',month:'short'}))}</text>`;
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Progress chart">${g}${area}<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>${dots}${endLbl}${xl}</svg>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Progress chart">${g}${area}<path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots}${endLbl}${xl}</svg>
+    <table class="sr"><tr><th>Date</th><th>Value</th></tr>${pts.map(p=>`<tr><td>${esc(fmtDate(p.date))}</td><td>${n1(p.v)} ${esc(unit)}</td></tr>`).join('')}</table>`;
 }
 
 /* ---------- views ---------- */
@@ -1887,7 +1889,8 @@ function spark(vals, color){
   const v = vals.filter(x=>Number.isFinite(x)); if (v.length<2) return '';
   const W=90, H=26, lo=Math.min(...v), hi=Math.max(...v), r=hi-lo||1;
   const pts = v.map((x,i)=>`${(i/(v.length-1)*(W-4)+2).toFixed(1)},${(H-3-(x-lo)/r*(H-6)).toFixed(1)}`).join(' ');
-  return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+  const end = pts.split(' ').pop().split(',');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round" opacity=".85"/><circle cx="${end[0]}" cy="${end[1]}" r="2.6" fill="${color}" stroke="var(--surface)" stroke-width="1.5"/></svg>`;
 }
 function dashCell(label, v, target, value, kind, hasData=true){
   const pctV = target>0 ? v/target*100 : 0, st = hasData ? goalState(v, target, kind) : null;
@@ -2807,8 +2810,11 @@ function weekBars(rows, get, fmt, kind, target){
   const vals = rows.map(r=>get(r)); const have = vals.filter(v=>v>0);
   const max = Math.max(...rows.map(r=>tgt(r)||0), ...vals, 1)*1.05;
   const avg = have.length ? have.reduce((s,v)=>s+v,0)/have.length : 0;
-  return {avg, html:`<div class="wbars">${rows.map((r,i)=>{ const v=vals[i]; const target = tgt(r); const h=v>0?Math.max(4, v/max*100):0; const st = goalState(v, target, kind);
-    return `<div class="wb" data-tip="${esc(fmtDate(r.date)+': '+(v>0?fmt(v):'nothing logged'))}"><span class="wv">${v>0?fmt(v,true):''}</span><div class="wtrack">${target?`<i class="wt" style="bottom:${target/max*100}%"></i>`:''}<i class="wfill" style="height:${h}%;background:${stBar(st)}"></i></div><span class="wd${r.date===localDate()?' now':''}">${esc(fmtDate(r.date,{weekday:'narrow'}))}</span></div>`; }).join('')}</div>`};
+  const last = rows.length - 1;
+  const tipOf = (r, v) => `${fmtDate(r.date,{weekday:'long',day:'numeric',month:'short'})}: ${v>0?fmt(v):'nothing logged'}${tgt(r)?` · target ${fmt(tgt(r))}`:''}`;
+  return {avg, html:`<div class="wbars">${rows.map((r,i)=>{ const v=vals[i]; const target = tgt(r); const h=v>0?Math.max(3, v/max*100):0; const st = goalState(v, target, kind);
+    return `<div class="wb" data-tip="${esc(tipOf(r, v))}" tabindex="0"><span class="wv">${i===last&&v>0?fmt(v,true):''}</span><div class="wtrack">${target?`<i class="wt" style="bottom:${target/max*100}%"></i>`:''}${v>0?`<i class="wfill" style="height:${h}%;background:${stBar(st)}"></i>`:''}</div><span class="wd${r.date===localDate()?' now':''}">${esc(fmtDate(r.date,{weekday:'narrow'}))}</span></div>`; }).join('')}</div>
+    <table class="sr"><tr><th>Day</th><th>Value</th><th>Target</th></tr>${rows.map((r,i)=>`<tr><td>${esc(fmtDate(r.date,{weekday:'long'}))}</td><td>${vals[i]>0?esc(fmt(vals[i])):'—'}</td><td>${tgt(r)?esc(fmt(tgt(r))):'—'}</td></tr>`).join('')}</table>`};
 }
 function viewTrends(){
   const rows = Array.from({length:7},(_,i)=>{ const date=addDays(S.date, i-6); const d=S.days.get(date); return {date, d, t:d?dayTotals(d):null, T:d?dayTargets(d):targets(date)}; });
@@ -3806,6 +3812,15 @@ document.addEventListener('pointermove', ev => {
   tip.style.top = Math.max(8, ev.clientY - h - 14) + 'px';
 });
 document.addEventListener('pointerleave', () => { tip.hidden=true; });
+// On phones there's no hover: a tap on a bar or point shows its value for a few seconds.
+let tipT = null;
+function showTipAt(t){ const r = t.getBoundingClientRect(); tip.textContent = t.getAttribute('data-tip'); tip.hidden = false;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(window.innerWidth-w-8, Math.max(8, r.left + r.width/2 - w/2)) + 'px';
+  tip.style.top = Math.max(8, r.top - h - 8) + 'px';
+  clearTimeout(tipT); tipT = setTimeout(() => { tip.hidden = true; }, 2600); }
+document.addEventListener('pointerdown', ev => { if (ev.pointerType === 'mouse') return; const t = ev.target.closest && ev.target.closest('[data-tip]'); if (t) showTipAt(t); else tip.hidden = true; });
+document.addEventListener('focusin', ev => { const t = ev.target.closest && ev.target.closest('[data-tip]'); if (t) showTipAt(t); });
 
 let lastW = window.innerWidth, rT;
 window.addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(() => { if (Math.abs(window.innerWidth-lastW)>40 && S.view!=='today' && S.view!=='profile') { lastW=window.innerWidth; render(); } }, 250); });
