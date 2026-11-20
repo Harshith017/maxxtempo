@@ -1948,7 +1948,7 @@ function viewToday(){
         return `<div class="nring-top">
           <div class="ringwrap">${rings([{p:P(t.carbs,T.carbs), color:'var(--carbs)'}, {p:P(t.protein,T.protein), color:'var(--protein)'}, {p:P(t.fat,T.fat), color:'var(--fat)'}])}
             <div class="ringc"><b>${hasFood?Math.round(P(t.kcal,T.kcal)):0}%</b><span>of goal</span></div></div>
-          <div class="nsum"><span class="muted small">You have eaten</span><div class="nbig"><b style="color:${stK?stText(stK):'var(--accent-text)'}">${n0(t.kcal)}</b> kcal</div><span class="muted small">of ${n0(T.kcal)} kcal</span></div>
+          <div class="nsum"><span class="muted small">You have eaten</span><div class="nbig"><b style="color:${stK?stText(stK):'var(--ink)'}">${n0(t.kcal)}</b> kcal</div><span class="muted small">of ${n0(T.kcal)} kcal</span></div>
         </div>
         <div class="mrows">${rows.map(([l,v,tg,u,kind,c,sub])=>{
           // Unsaturated has no target: show its share of the fat eaten instead.
